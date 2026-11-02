@@ -34,6 +34,7 @@ import { createStore as createMemoryStore } from './memory-store.js';
 import { selectForInjection as selectFactsForInjection } from './memory-facts.js';
 import { createRecall } from './memory-search.js';
 import { createArtifactStore } from './artifact-store.js';
+import { createMediaFetchCache } from './media-fetch-cache.mjs';
 import { inWindow, readBudget, reserveSend } from './proactive-policy.mjs';
 import {
   loadSlang,
@@ -8474,7 +8475,14 @@ async function main() {
     return { buffer: buf, mimeType: mimeFromBuffer(buf) };
   }
 
+  const recentImageFetches = createMediaFetchCache();
   async function fetchOneBotImage(media) {
+    let cacheKey = '';
+    try { cacheKey = crypto.createHash('sha256').update(JSON.stringify(media)).digest('hex'); } catch { /* 无法构造键时直接获取 */ }
+    return recentImageFetches.get(cacheKey, () => fetchOneBotImageUncached(media));
+  }
+
+  async function fetchOneBotImageUncached(media) {
     // 表情包（市场/收藏表情）优先走 CDN：get_image 对市场表情必然失败
     // （SnowLuma 缓存里没有该文件），先试 URL 能省一次失败往返，也更可靠。
     const emojiId = String(media.emojiId || emojiIdFromFileName(media.file) || '');
