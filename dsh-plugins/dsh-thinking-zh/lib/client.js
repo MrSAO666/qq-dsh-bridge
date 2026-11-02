@@ -569,6 +569,16 @@ window.__ModuleLoader__.load({
     ['wake.batchWindowMs', '唤醒合并窗口', '毫秒。多条消息合并成一次唤醒'],
     ['wake.maxWakePerHour', '每小时最多唤醒', '防止反复自我唤醒'],
     ['context.recentLimit', '注入的历史条数', '越大上下文越全，但更慢更贵'],
+    ['proactive.enabled', '启用主动聊天', '安静一段时间后随机决定是否主动开口', 'bool', true],
+    ['proactive.prompt', '主动唤醒提示词', '每次主动唤醒时交给模型的提示词', 'text', '（安静了一阵，想说什么可以说。）'],
+    ['proactive.startTime', '允许时段开始', '北京时间；开始和结束相同表示全天', 'time', '00:00'],
+    ['proactive.endTime', '允许时段结束', '北京时间；可跨午夜', 'time', '00:00'],
+    ['proactive.maxDaily', '每天最多主动开口次数', '北京时间自然日，0 表示关闭主动开口', 'number', 5],
+    ['proactive.maxPerWake', '每次主动最多消息条数', '按发送尝试计数，发送失败也占额度', 'number', 1],
+    ['proactive.checkIntervalMinMs', '主动检查最短间隔', '毫秒，默认 1800000（30 分钟）', 'number', 1800000],
+    ['proactive.checkIntervalMaxMs', '主动检查最长间隔', '毫秒，默认 5400000（90 分钟）', 'number', 5400000],
+    ['proactive.idleThresholdMs', '主动聊天安静阈值', '毫秒，默认 900000（15 分钟）', 'number', 900000],
+    ['proactive.probability', '每次检查触发概率', '0 到 1，例如 0.3 表示 30%', 'number', 0.3],
     // QQ 空间：它只是一个工具，不是日程任务。这里控制「能不能发 / 一天最多几条」，
     // 不控制"什么时候发"——那由它自己或你临场决定，不存在"到点自动发"。
     ['qzone.enabled', '允许发 QQ 空间（说说）', '关掉后它调不动发说说的工具；开着也只代表"有能力发"，不会自己每天发', 'bool'],
@@ -859,6 +869,7 @@ window.__ModuleLoader__.load({
         var field = h('div', 'dsh-fb-field')
         field.appendChild(h('label', null, spec[1]))
         var v = getPath(r, spec[0])
+        if (v === undefined || v === null) v = spec[4]
         var input
         if (spec[3] === 'bool') {
           // 布尔项渲染成勾选框：用数字框让用户填 1/0 太反人类。
@@ -867,7 +878,11 @@ window.__ModuleLoader__.load({
           input.checked = v === true
         } else {
           input = h('input', 'dsh-fb-input')
-          input.type = 'number'
+          input.type = spec[3] === 'text' || spec[3] === 'time' ? spec[3] : 'number'
+          if (spec[0] === 'proactive.probability') { input.min = '0'; input.max = '1'; input.step = '0.01' }
+          if (spec[0] === 'proactive.maxDaily') { input.min = '0'; input.max = '100'; input.step = '1' }
+          if (spec[0] === 'proactive.maxPerWake') { input.min = '1'; input.max = '100'; input.step = '1' }
+          if (spec[0] === 'proactive.prompt') input.maxLength = 2000
           input.value = (v === undefined || v === null) ? '' : String(v)
         }
         input.dataset.key = spec[0]
@@ -905,6 +920,12 @@ window.__ModuleLoader__.load({
         cur[parts[parts.length - 1]] = input.checked === true
         continue
       }
+      if (input.type === 'text' || input.type === 'time') {
+        if (input.type === 'time' && !input.value) { mState.note = '请填写有效的主动聊天时间'; renderRhythmTab(mState.data); return }
+        cur[parts[parts.length - 1]] = input.value
+        continue
+      }
+      if (!input.validity.valid) { mState.note = '请检查主动聊天数值范围'; renderRhythmTab(mState.data); return }
       var num = Number(input.value)
       if (input.value === '' || !isFinite(num)) continue
       cur[parts[parts.length - 1]] = num
