@@ -219,3 +219,24 @@ Windows 对应使用 `python -m venv state/bili/.venv` 和 `state/bili/.venv/Scr
 主人 Agent 可能拥有文件、命令及其他工具权限；模型可能误判、受到外部内容诱导或发布错误信息。应按需要限制权限、互动范围和额度，并在使用前做好备份。提示词及关键词拦截不能替代权限边界。
 
 代码按 [MIT License](LICENSE) 的 “AS IS” 条款提供，不作可用性、准确性、适销性或特定用途保证；责任范围以许可证及适用法律为准。第三方组件的商业使用、修改及再分发须另行核对其授权，不能仅依赖本仓库许可。
+
+### 视频分镜（可选插件）
+
+支持接入 [SAOS-3624/dsh-video-storyboard](https://github.com/SAOS-3624/dsh-video-storyboard)（当前适配0.6.5，Apache-2.0），依赖 FFmpeg/ffprobe；网页视频另需 yt-dlp。插件由 DSH profile 单独安装，不捆绑其源码。
+
+主人私聊中的 QQ 视频会保留媒体元数据，通过 qq_get_message_detail 返回视频链接，再按需调用 video_probe / video_storyboard / video_zoom；目前要求网关提供可下载的 HTTP(S) 视频链接，只有网关内部文件路径时需重新发送。普通群聊不开放本机视频工具。B站子任务可对已有字幕的视频补看分镜，仍跳过无字幕视频。
+
+QQ与刷站工具执行期限制每次分镜窗口最多300秒、48帧、2张图，像素预算最多640000；提示词默认360000。长视频分段、按需查看。分镜是抽帧概览，不代表逐帧观看；未配置ASR时不具备语音转写能力，不声称听过音轨。图片计入模型输入实际usage，插件估算不是账单。
+
+安装不会自动配置ASR/OCR，不自动授予额外账号权限；获取与处理视频须符合平台规则和内容使用授权。项目与腾讯、哔哩哔哩等平台无隶属关系。
+
+云端 Web profile 安装示例：
+
+```sh
+apt-get install -y --no-install-recommends ffmpeg yt-dlp
+dsh plugin --profile web add dsh-video-storyboard@0.6.5
+```
+
+某些 DSH Web 安装未暴露插件的可选 peer `@deepseek-ai/dsh-tools`，此时需将服务环境变量 `DSH_TOOLS_PATH` 指向当前 DSH 安装树内该包的 `lib/index.js`，随后重启 DSH 与桥接；不应因此再安装另一套宿主或无关插件。以插件实际注册并返回图片为准，不能只看包已安装。
+
+B站登录态复用是显式开启的：将 `~/.dsh/video.json` 的 `cookies` 设置为 `~/.dsh/bili-video-cookies.txt` 的实际绝对路径。视频工具执行前，桥接守卫会从已有的 `state/bili/bili_credential.json` 刷新这个专用 Netscape Cookie 文件（权限600）；缺失或不完整凭据会删除旧导出并拒绝调用。自定义 Cookie 文件不会被覆盖。Cookie、视频缓存和运行状态不得提交仓库。

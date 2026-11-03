@@ -1420,6 +1420,9 @@ function extractMediaFromSegments(segments) {
         summary: sanitizeMediaSummary(d.summary),
         ...emojiFields
       });
+    } else if (seg.type === 'video') {
+      // Keep the transport reference for on-demand video tools, never feed it to the image decoder.
+      media.push({ kind: 'video', file: String(d.file ?? ''), url: String(d.url ?? ''), summary: sanitizeMediaSummary(d.summary) });
     } else if (seg.type === 'mface') {
       // 市场表情（mface）：没有 image 段可用，emoji_id/url 是唯一来源。
       media.push({
@@ -7276,6 +7279,12 @@ async function main() {
             }
             // 无论 info 来自本地还是 OneBot，只要本地有 found 就补充转发字段，避免提示词与实现不一致。
             if (info && found) Object.assign(info, forwardFields);
+            if (info && key === 'private:' + String(cfg.ownerQQ)) {
+              info.videos = findMessageMedia(key, messageId).filter(m => m.kind === 'video').slice(0, 2).map(m => ({
+                kind: 'video', url: /^https?:\/\//i.test(m.url || '') ? m.url : (/^https?:\/\//i.test(m.file || '') ? m.file : undefined),
+                note: '有可用链接时交给 video_probe / video_storyboard；没有链接则请对方重新发送视频。'
+              }));
+            }
             // 正文本就是 200 字符预览；显式告知截断，避免模型把预览当成全文。
             if (info) info.textTruncated = String(info.text ?? '').length >= 200;
             sendJson({ ok: true, key, messageId, info });
@@ -8699,6 +8708,8 @@ async function main() {
         } else {
           parts.push({ type: 'text', text: face.text || `[表情#${media.faceId}]` });
         }
+      } else if (media.kind === 'video') {
+        parts.push({ type: 'text', text: '[视频：请通过 qq_get_message_detail 取得视频链接，使用视频分镜工具查看]' });
       } else {
         const img = await fetchOneBotImage(media);
         const sticker = media.kind === 'sticker';
@@ -8734,7 +8745,7 @@ async function main() {
         out.push({ index, kind: media?.kind === 'face' ? 'face' : (media?.kind === 'sticker' ? 'sticker' : 'image'), text: `（超过单条上限 ${MAX_MEDIA_COUNT}，已跳过）` });
         continue;
       }
-      if (!media || typeof media !== 'object') continue;
+      if (!media || typeof media !== 'object' || media.kind === 'video') continue;
       if (media.kind === 'face') {
         const face = await fetchFaceMedia(media);
         const prep = face.buffer ? await toModelMedia(face.buffer, face.mimeType, `表情#${media.faceId ?? index}`) : null;
@@ -10846,7 +10857,7 @@ async function main() {
     // 与「部分表情 20 秒超时」的根因）；丢了 summary，模型只看到「[图片1]」而不是「[表情:给你糖吃]」；
     // kind 被拍平还会让 mface（市场表情）被当成普通图片。
     const safeMedia = Array.isArray(media) ? media.map((m) => {
-      const kind = m?.kind === 'face' ? 'face' : (m?.kind === 'sticker' ? 'sticker' : 'image');
+      const kind = m?.kind === 'video' ? 'video' : (m?.kind === 'face' ? 'face' : (m?.kind === 'sticker' ? 'sticker' : 'image'));
       const item = { kind };
       if (m?.file) item.file = String(m.file);
       if (m?.url) item.url = String(m.url);

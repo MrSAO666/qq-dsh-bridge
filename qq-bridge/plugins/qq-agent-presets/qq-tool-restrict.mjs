@@ -3,6 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { syncVideoCookies } from './video-auth.mjs'
 // 本文件是 qq-agent-presets bundle 里的**唯一权威实现**，由 qq-chat / qq-chat-v2 两个
 // agent preset 的 qq-tool-restrict 行共同引用（dsh/agent-presets/<preset>/qq-tool-restrict.mjs
 // 只是个 re-export 壳，避免出现两份会漂移的实现）。
@@ -28,6 +29,9 @@ import { fileURLToPath } from 'node:url'
 export const name = 'qq-tool-restrict'
 
 export const inject = ['tools']
+
+const VIDEO_TOOLS = new Set(['video_probe', 'video_storyboard', 'video_zoom']);
+const VIDEO_ALL = ['video_probe', 'video_storyboard', 'video_zoom', 'video_locate', 'video_subtitles', 'video_storyboard_settings'];
 
 /**
  * 本地执行 / 文件访问 / 进程控制类工具：仿真会话**不得**拥有。
@@ -214,6 +218,7 @@ export const HOST_RESOURCE_TOOL_NAMES = Object.freeze([
 ])
 
 const KNOWN_DANGEROUS_GLOBAL_TOOLS = [
+  ...VIDEO_ALL,
   // 本地执行面（见上）
   ...LOCAL_EXECUTION_TOOLS,
   // 宿主内置的资源/工作目录工具（0.2.1-rc.3 上确实注册，能真正从 schema 藏掉）
@@ -290,6 +295,7 @@ export const MODES = Object.freeze({ STRICT: 'strict', READONLY: 'readonly', OPE
 
 /** open（owner）模式下**允许**放行的本地能力：与 qq-chat-owner 实际挂载的行一一对应。 */
 const OWNER_GRANTABLE_TOOL_NAMES = new Set([
+  ...VIDEO_TOOLS,
   // dsh-tool-fs → read / read_image / write / edit
   'read', 'read_image', 'write', 'edit',
   // dsh-tool-fs-search → glob / grep
@@ -342,9 +348,39 @@ export function normalizeRestrictMode(raw) {
  * @param {{name?: unknown}} exec 工具调用描述
  * @returns {string|undefined} 字符串 = 拒绝原因；undefined = 放行
  */
+
+
+export function videoGuardReason(mode, exec) {
+  const a = exec?.arguments;
+  if (!a || typeof a !== 'object') return '视频工具需要参数';
+  if (mode === MODES.BILI) {
+    let url;
+    try { url = new URL(a.input); } catch { return '刷站视频工具只接受 B站 BV 视频链接'; }
+    if (url.protocol !== 'https:' || !['www.bilibili.com', 'bilibili.com'].includes(url.hostname) || !/^\/video\/BV[0-9A-Za-z]{10}\/?$/.test(url.pathname) || url.username || url.password || url.port) return '刷站视频工具只接受 B站 BV 视频链接';
+    if (Object.keys(a).some(k => !['input','from','to','maxFrames','maxSheets','budget','strategy','detail','transcript','dryRun','scanHeight','ocr','cellRange'].includes(k))) return '刷站视频工具不允许本地文件、Cookie 或额外下载参数';
+  }
+  if (exec.name === 'video_probe') return;
+  if (!Number.isFinite(a.to) || !Number.isFinite(a.from ?? 0) || (a.from ?? 0) < 0 || a.to <= (a.from ?? 0) || a.to - (a.from ?? 0) > 300) return '每次分镜请显式指定 from/to，最多看 300 秒；长视频分段查看';
+  if (!Number.isInteger(a.maxFrames) || a.maxFrames < 1 || a.maxFrames > 48 || !Number.isInteger(a.maxSheets) || a.maxSheets < 1 || a.maxSheets > 2) return '请指定 maxFrames=48、maxSheets=2（或更小），避免大量图片进入上下文';
+  if (a.budget !== undefined && (!Number.isFinite(a.budget) || a.budget > 640000)) return '每张分镜像素预算最多 640000';
+}
+
 export function toolGuardReason(mode, exec) {
   const name = exec?.name
   if (typeof name !== 'string' || name.length === 0) return '工具名无效，已拒绝'
+  if (VIDEO_ALL.includes(name)) {
+    if (![MODES.OPEN, MODES.BILI].includes(mode) || !VIDEO_TOOLS.has(name)) return '视频工具仅向主人与受限 B站子任务开放';
+    const reason = videoGuardReason(mode, exec);
+    if (reason) return reason;
+    try {
+      const input = new URL(exec.arguments.input);
+      if (['www.bilibili.com', 'bilibili.com'].includes(input.hostname)) {
+        try { syncVideoCookies({dataDir: fileURLToPath(new URL('../../state/bili/', import.meta.url))}); }
+        catch { return 'B站视频登录态同步失败，请在B站设置页重新登录'; }
+      }
+    } catch { /* Owner local files do not need platform credentials. */ }
+    return;
+  }
   if (mode === MODES.OPEN) {
     // owner：本地能力全放行，但宿主/开发/装载权类工具永不授予。
     if (NEVER_GRANTED_SET.has(name)) {
@@ -442,7 +478,7 @@ export function apply(ctx, config = {}) {
   }
 
   // B站只读工具由 profile 全局注册：owner 会话必须保留可见，其他档隐藏。
-  const hiddenNames = mode === MODES.OPEN || mode === MODES.BILI ? RESTRICTED_TOOL_NAMES.filter(name => !OWNER_BILI_TOOLS.has(name)) : RESTRICTED_TOOL_NAMES
+  const hiddenNames = mode === MODES.OPEN || mode === MODES.BILI ? RESTRICTED_TOOL_NAMES.filter(name => !OWNER_BILI_TOOLS.has(name) && !VIDEO_TOOLS.has(name)) : [...RESTRICTED_TOOL_NAMES]
   const firstOk = attempt(hiddenNames)
   const firstFailed = failed.slice()
   failed.length = 0
@@ -483,4 +519,14 @@ export function apply(ctx, config = {}) {
   //    档位差异（strict / readonly / open）全部落在 toolGuardReason 里，
   //    与注册期的 restrict 名单构成两道互不依赖的边界。
   ctx.tools.guard((exec) => toolGuardReason(mode, exec))
+
+  // A separate system-prompt section keeps video policy independent of editable role cards.
+  // dsh-persona owns a singleton section; registering another instance invalidates the preset.
+  if ([MODES.OPEN, MODES.BILI].includes(mode) && typeof ctx.inject === 'function') {
+    ctx.inject(['systemPrompt'], scope => scope.systemPrompt.section({
+      name: 'qq:video-policy', order: 110, interpolate: false,
+      text: () => '视频按需查看：先用 video_probe 了解时长，再用 video_storyboard 查看画面。每次显式设置 from、to，窗口不超过300秒，maxFrames=48、maxSheets=2、budget=360000、detail=low、transcript=off、scanHeight=360；长视频分段查看，不重复取同一窗口。抽帧不代表逐帧看过；没有字幕或转写时不能声称听懂声音。' +
+        (mode === MODES.OPEN ? ' 主人发来的QQ视频：先用 qq_get_message_detail 取得 videos.url，再传给视频工具；URL不可用时请主人重发，禁止把视频交给图片解码工具。' : ' 先用 bili_read_video 确认字幕可用，无字幕跳过；仅对有字幕的视频按需补看分镜。')
+    }))
+  }
 }
