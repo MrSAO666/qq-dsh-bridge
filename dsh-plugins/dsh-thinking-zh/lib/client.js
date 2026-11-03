@@ -555,34 +555,40 @@ window.__ModuleLoader__.load({
     { id: 'diagnose', label: '诊断' },
   ]
 
-  // [字段路径, 显示名, 说明]
-  var RHYTHM_FIELDS = [
-    ['autoReplyCheckMs', '唤醒检查间隔', '毫秒。越小越「秒回」，但轮询更频繁'],
-    ['send.burstMaxMessages', '单次最多几条', '一轮回复最多拆成几条消息'],
-    ['send.burstIntervalMinMs', '条间最短间隔', '毫秒'],
-    ['send.burstIntervalMaxMs', '条间最长间隔', '毫秒'],
-    ['send.maxSendPerMinute', '每分钟峰值', '超过会被桥接限流（防 QQ 风控）'],
-    ['send.maxSendPerHour', '每小时峰值', '同上'],
-    ['send.maxMessageChars', '单条最大字数', '超出自动按句读切分'],
-    ['wait.defaultMs', '等待消息默认时长', '毫秒。AI 调 qq_wait_for_messages 的默认值'],
-    ['wait.defaultQuietMs', '静默判定窗口', '毫秒。连续安静这么久才算对方说完'],
-    ['wake.batchWindowMs', '唤醒合并窗口', '毫秒。多条消息合并成一次唤醒'],
-    ['wake.maxWakePerHour', '每小时最多唤醒', '防止反复自我唤醒'],
-    ['context.recentLimit', '注入的历史条数', '越大上下文越全，但更慢更贵'],
-    ['proactive.enabled', '启用主动聊天', '安静一段时间后随机决定是否主动开口', 'bool', true],
-    ['proactive.prompt', '主动唤醒提示词', '每次主动唤醒时交给模型的提示词', 'text', '（安静了一阵，想说什么可以说。）'],
-    ['proactive.startTime', '允许时段开始', '北京时间；开始和结束相同表示全天', 'time', '00:00'],
-    ['proactive.endTime', '允许时段结束', '北京时间；可跨午夜', 'time', '00:00'],
-    ['proactive.maxDaily', '每天最多主动开口次数', '北京时间自然日，0 表示关闭主动开口', 'number', 5],
-    ['proactive.maxPerWake', '每次主动最多消息条数', '按发送尝试计数，发送失败也占额度', 'number', 1],
-    ['proactive.checkIntervalMinMs', '主动检查最短间隔', '毫秒，默认 1800000（30 分钟）', 'number', 1800000],
-    ['proactive.checkIntervalMaxMs', '主动检查最长间隔', '毫秒，默认 5400000（90 分钟）', 'number', 5400000],
-    ['proactive.idleThresholdMs', '主动聊天安静阈值', '毫秒，默认 900000（15 分钟）', 'number', 900000],
-    ['proactive.probability', '每次检查触发概率', '0 到 1，例如 0.3 表示 30%', 'number', 0.3],
-    // QQ 空间：它只是一个工具，不是日程任务。这里控制「能不能发 / 一天最多几条」，
-    // 不控制"什么时候发"——那由它自己或你临场决定，不存在"到点自动发"。
-    ['qzone.enabled', '允许发 QQ 空间（说说）', '关掉后它调不动发说说的工具；开着也只代表"有能力发"，不会自己每天发', 'bool'],
-    ['qzone.maxPerDay', '说说每天上限', '防刷屏的上限，不是任务量。默认 2 条'],
+  // 显示时换算为分钟、秒和百分比，保存时仍用毫秒和 0~1。
+  var RHYTHM_GROUPS = [
+    { title: '主动聊天', fields: [
+      ['proactive.enabled', '允许主动聊天', '安静一段时间后随机考虑主动开口。', 'bool', true],
+      ['proactive.prompt', '主动聊天时的提示词', '模型也可以选择不发消息。', 'text', '（安静了一阵，想说什么可以说。）'],
+      ['proactive.startTime', '允许发送的开始时间', '北京时间；与结束时间相同表示全天。', 'time', '00:00'],
+      ['proactive.endTime', '允许发送的结束时间', '北京时间；早于开始时间表示跨午夜。', 'time', '00:00'],
+      ['proactive.maxDaily', '每天最多主动几次', '北京时间自然日计算；填 0 不主动发消息。', 'number', 5],
+      ['proactive.maxPerWake', '每次主动最多发几条', '按发送尝试计数，失败也占额度。', 'number', 1],
+      ['proactive.checkIntervalMinMs', '检查间隔最短（分钟）', '在最短与最长间隔之间随机选择。', 'minutes', 1800000],
+      ['proactive.checkIntervalMaxMs', '检查间隔最长（分钟）', '检查不代表一定发送消息。', 'minutes', 5400000],
+      ['proactive.idleThresholdMs', '聊天安静多久后考虑主动（分钟）', '近期有互动时实际触发概率还会降低。', 'minutes', 900000],
+      ['proactive.probability', '每次检查的基础触发概率（%）', '例如 30 表示 30%；实际概率可能调整。', 'percent', 0.3],
+    ] },
+    { title: '收到消息后', fields: [
+      ['autoReplyCheckMs', '检查新消息的间隔（秒）', '越短检查越频繁。', 'seconds'],
+      ['wake.batchWindowMs', '合并连续消息的时间（秒）', '这段时间内的多条消息合并处理。', 'seconds'],
+      ['wait.defaultMs', '等待新消息的默认时长（秒）', '模型使用等待消息工具时的默认值。', 'seconds'],
+      ['wait.defaultQuietMs', '判断对方说完的安静时间（秒）', '连续安静这么久后认为对方暂时说完。', 'seconds'],
+      ['wake.maxWakePerHour', '每小时最多唤醒次数', '限制反复唤醒模型的次数。'],
+      ['context.recentLimit', '带入的近期聊天条数', '越多上下文越完整，消耗也可能越高。'],
+    ] },
+    { title: '发送消息', fields: [
+      ['send.burstMaxMessages', '一轮回复最多拆成几条', '限制一次回复拆分出的消息数。'],
+      ['send.burstIntervalMinMs', '两条消息最短间隔（秒）', '在最短与最长间隔之间随机选择。', 'seconds'],
+      ['send.burstIntervalMaxMs', '两条消息最长间隔（秒）', '在最短与最长间隔之间随机选择。', 'seconds'],
+      ['send.maxSendPerMinute', '每分钟最多发送几条', '达到上限后会限流。'],
+      ['send.maxSendPerHour', '每小时最多发送几条', '达到上限后会限流。'],
+      ['send.maxMessageChars', '单条消息最多字数', '超出后按句子拆分。'],
+    ] },
+    { title: 'QQ 空间', fields: [
+      ['qzone.enabled', '允许发布说说', '开启只代表允许发布，不会自动创建定时任务。', 'bool'],
+      ['qzone.maxPerDay', '每天最多发布几条说说', '这是上限，不是必须发布的数量。'],
+    ] },
   ]
 
   var modal = null
@@ -863,41 +869,64 @@ window.__ModuleLoader__.load({
 
   function renderRhythmTab(d) {
     var r = d.rhythm || {}
-    var grid = h('div', 'dsh-fb-grid')
-    for (var i = 0; i < RHYTHM_FIELDS.length; i++) {
-      (function (spec) {
+    var nodes = []
+    var model = d.model
+    if (model && Array.isArray(model.options)) {
+      var select = h('select', 'dsh-fb-input')
+      select.setAttribute('aria-label', '思考强度')
+      var names = { low: '低', high: '高', max: '最高' }
+      model.options.forEach(function (value) {
+        var option = h('option', null, (names[value] || value) + '（' + value + '）')
+        option.value = value; select.appendChild(option)
+      })
+      if (model.options.indexOf(model.reasoningEffort) < 0) {
+        var current = h('option', null, '当前：' + model.reasoningEffort)
+        current.value = model.reasoningEffort; select.appendChild(current)
+      }
+      select.value = model.reasoningEffort
+      var saveEffort = h('button', 'dsh-fb-btn', '保存思考强度')
+      saveEffort.type = 'button'
+      saveEffort.addEventListener('click', function () {
+        saveEffort.disabled = true
+        postJson(mState.feature.api + '/settings', { action: 'set-effort', reasoningEffort: select.value }).then(function (res) {
+          saveEffort.disabled = false
+          toast(res && res.ok ? '思考强度已保存，下一次会话处理时应用' : ((res && res.error) || '保存失败'))
+          if (res && res.ok) loadTab('rhythm')
+        })
+      })
+      nodes.push(section('思考强度', [select, h('div', 'dsh-fb-warn', '下次 QQ 会话处理时应用。DSH 切换模型设置可能同时改变新建会话的默认模型。'), saveEffort]))
+    } else nodes.push(section('思考强度', [h('div', 'dsh-fb-warn', '暂时无法读取模型设置，请检查桥接与 DSH 的连接。')]))
+    RHYTHM_GROUPS.forEach(function (group) {
+      var grid = h('div', 'dsh-fb-grid')
+      group.fields.forEach(function (spec) {
         var field = h('div', 'dsh-fb-field')
         field.appendChild(h('label', null, spec[1]))
         var v = getPath(r, spec[0])
         if (v === undefined || v === null) v = spec[4]
-        var input
-        if (spec[3] === 'bool') {
-          // 布尔项渲染成勾选框：用数字框让用户填 1/0 太反人类。
-          input = h('input')
-          input.type = 'checkbox'
-          input.checked = v === true
-        } else {
-          input = h('input', 'dsh-fb-input')
+        var input = h('input', spec[3] === 'bool' ? '' : 'dsh-fb-input')
+        if (spec[3] === 'bool') { input.type = 'checkbox'; input.checked = v === true }
+        else {
           input.type = spec[3] === 'text' || spec[3] === 'time' ? spec[3] : 'number'
-          if (spec[0] === 'proactive.probability') { input.min = '0'; input.max = '1'; input.step = '0.01' }
-          if (spec[0] === 'proactive.maxDaily') { input.min = '0'; input.max = '100'; input.step = '1' }
+          if (spec[3] === 'minutes') v = v === undefined ? v : v / 60000
+          if (spec[3] === 'seconds') v = v === undefined ? v : v / 1000
+          if (spec[3] === 'percent') v = v === undefined ? v : v * 100
+          if (input.type === 'number') { input.min = '0'; input.step = 'any' }
+          if (spec[3] === 'percent') input.max = '100'
+          if (spec[0] === 'proactive.maxDaily') { input.max = '100'; input.step = '1' }
           if (spec[0] === 'proactive.maxPerWake') { input.min = '1'; input.max = '100'; input.step = '1' }
           if (spec[0] === 'proactive.prompt') input.maxLength = 2000
           input.value = (v === undefined || v === null) ? '' : String(v)
         }
-        input.dataset.key = spec[0]
-        field.appendChild(input)
-        field.appendChild(h('small', null, spec[2]))
-        grid.appendChild(field)
-      })(RHYTHM_FIELDS[i])
-    }
-
-    var nodes = [section('回复节奏（保存后即时生效）', [grid])]
+        input.dataset.key = spec[0]; input.dataset.unit = spec[3] || ''
+        field.appendChild(input); field.appendChild(h('small', null, spec[2])); grid.appendChild(field)
+      })
+      nodes.push(section(group.title, [grid]))
+    })
     nodes.push(actionsRow([
-      { label: '保存', onClick: function () { saveRhythm(r) } },
+      { label: '保存节奏设置', onClick: function () { saveRhythm(r) } },
       { label: '放弃改动', ghost: true, onClick: function () { loadTab('rhythm') } },
     ]))
-    nodes.push(h('div', 'dsh-fb-warn', '提醒：发送频率调得越高，触发 QQ 风控的风险越大。默认值（每分钟 8 条 / 每小时 60 条）是保守的。'))
+    nodes.push(h('div', 'dsh-fb-warn', '节奏设置保存后生效。发送过于频繁可能触发 QQ 风控。'))
     if (mState.note) nodes.push(h('div', 'dsh-fb-warn', mState.note))
     setBody(nodes)
   }
@@ -921,14 +950,25 @@ window.__ModuleLoader__.load({
         continue
       }
       if (input.type === 'text' || input.type === 'time') {
-        if (input.type === 'time' && !input.value) { mState.note = '请填写有效的主动聊天时间'; renderRhythmTab(mState.data); return }
+        if (input.type === 'time' && !input.value) { toast('请填写有效的主动聊天时间'); input.focus(); return }
         cur[parts[parts.length - 1]] = input.value
         continue
       }
-      if (!input.validity.valid) { mState.note = '请检查主动聊天数值范围'; renderRhythmTab(mState.data); return }
+      if (!input.validity.valid) { toast('请检查数值范围'); input.focus(); return }
       var num = Number(input.value)
       if (input.value === '' || !isFinite(num)) continue
+      if (input.dataset.unit === 'minutes') num = Math.round(num * 60000)
+      if (input.dataset.unit === 'seconds') num = Math.round(num * 1000)
+      if (input.dataset.unit === 'percent') num = num / 100
       cur[parts[parts.length - 1]] = num
+    }
+    if (rhythm.proactive && Number(rhythm.proactive.checkIntervalMinMs) > Number(rhythm.proactive.checkIntervalMaxMs)) {
+      toast('检查间隔最短值不能大于最长值')
+      return
+    }
+    if (rhythm.send && Number(rhythm.send.burstIntervalMinMs) > Number(rhythm.send.burstIntervalMaxMs)) {
+      toast('消息间隔最短值不能大于最长值')
+      return
     }
     setBody([h('div', 'dsh-fb-empty', '保存中…')])
     postJson(mState.feature.api + '/settings', { rhythm: rhythm }).then(function (res) {

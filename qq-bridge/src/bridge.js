@@ -4477,9 +4477,9 @@ async function main() {
           const configFile = path.join(ROOT, 'config.json');
           // fail-fast：配置损坏时直接 500，绝不回写（与白名单接口同语义）
           const file = readConfigObject(configFile);
-          file.dsh = { ...(file.dsh ?? {}), reasoningEffort: effort };
+          file.dsh = { ...(file.dsh ?? {}), reasoningEffort: effort, applyReasoningEffort: true };
           atomicWriteJson(configFile, file);
-          cfg.dsh = { ...(cfg.dsh ?? {}), reasoningEffort: effort };
+          cfg.dsh = { ...(cfg.dsh ?? {}), reasoningEffort: effort, applyReasoningEffort: true };
           // 递增代号：已在运行的会话在下一条消息会重新 selectModel（无需重启桥接或 DSH）
           modelSelectionEpoch += 1;
           log(`控制台：DSH 思考强度已设为 ${effort}（对已有会话于下一条消息生效）`);
@@ -8902,6 +8902,23 @@ async function main() {
     //   ① 配错就每轮报错（会话其实还能跑，但用户会以为坏了）；
     //   ② 配对了会**写穿 DSH 全局默认**（~/.dsh/settings.yaml 的 agent-default-model），
     //      把用户桌面端新建对话的默认模型一起改掉。装个 QQ 机器人不该有这种副作用。
+    if (!provider && !model && cfg.dsh?.applyReasoningEffort === true) {
+      // 明确设置强度时读取会话当前模型，避免在其他环境猜测模型。
+      try {
+        const projection = unwrap(await api.callUnary('session/projections', { sessionId }), 'session.projections');
+        const selection = projection?.values?.modelSelection;
+        const current = selection?.next ?? selection?.pending ?? selection?.lastUsed;
+        provider = String(current?.provider ?? '').trim();
+        model = String(current?.model ?? '').trim();
+      } catch (error) {
+        log(`[model] 无法读取会话模型，暂不调整思考强度：${error?.message ?? error}`);
+        return 'failed';
+      }
+      if (!provider || !model) {
+        log('[model] 会话没有可用的模型信息，暂不调整思考强度');
+        return 'failed';
+      }
+    }
     if (!provider && !model) {
       modelAppliedSessions.set(sessionId, modelSelectionEpoch);
       return 'applied';

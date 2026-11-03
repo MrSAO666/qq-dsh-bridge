@@ -300,6 +300,12 @@ async function handleSettings(req, res) {
   let body
   try { body = await readJsonBody(req) } catch (error) { return json(res, 400, { ok: false, error: String(error.message || error) }) }
 
+  if (body.action === 'set-effort') {
+    const result = await bridgeApi(env, '/api/dsh/effort', { method: 'POST', body: { reasoningEffort: body.reasoningEffort } })
+    return json(res, 200, result.ok && result.data?.ok !== false
+      ? { ok: true, reasoningEffort: result.data?.reasoningEffort }
+      : { ok: false, error: result.error || result.data?.error || `HTTP ${result.status}` })
+  }
   // ★ 必须是「完整对象整体写回」：该接口浅合并，子对象会被整段替换。
   const next = { ...full, ...(body.rhythm || {}) }
   if (body.paused !== undefined) next.paused = body.paused === true
