@@ -294,12 +294,14 @@ async function handleSettings(req, res) {
   const full = (current.data && current.data.config) || {}
 
   if ((req.method || 'GET') === 'GET') {
-    const effort = await bridgeApi(env, '/api/dsh/model')
+    const [effort, optimization] = await Promise.all([bridgeApi(env, '/api/dsh/model'),bridgeApi(env, '/api/socialV2/idle-compact')])
     return json(res, 200, {
       ok: true,
       rhythm: {
         autoReplyCheckMs: full.autoReplyCheckMs,
         replyCheck: full.replyCheck ?? {},
+        compaction: full.compaction ?? {},
+        economy: full.economy ?? {},
         send: full.send ?? {},
         wait: full.wait ?? {},
         wake: full.wake ?? {},
@@ -310,6 +312,7 @@ async function handleSettings(req, res) {
         qzone: full.qzone ?? {},
       },
       model: effort.ok ? effort.data : null,
+      optimization: optimization.ok ? optimization.data : null,
       paused: full.paused === true,
     })
   }

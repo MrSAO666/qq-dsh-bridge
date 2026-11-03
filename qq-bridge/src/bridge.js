@@ -36,6 +36,8 @@ import { createStore as createMemoryStore } from './memory-store.js';
 import { selectForInjection as selectFactsForInjection } from './memory-facts.js';
 import { createRecall } from './memory-search.js';
 import { createArtifactStore } from './artifact-store.js';
+import { createSendTiming } from './send-timing.mjs';
+import { createImageObservations } from './image-observations.mjs';
 import { createMediaFetchCache } from './media-fetch-cache.mjs';
 import { inWindow, readBudget, reserveSend } from './proactive-policy.mjs';
 import { DEFAULT_BILI_CONFIG, normalizeBiliConfig } from './bili-config.mjs';
@@ -852,7 +854,7 @@ function loadConfig() {
         recommendedNameMention: true,
         recommendedQuestion: true,
         recommendedPoke: true,
-        recommendedHint: '如果你要潜水，推荐先调用 qq_wait_for_messages(timeoutMs=300000) 完成一次沉睡前观察：5 分钟内没人说话就可以设置下一次唤醒并沉睡；若期间有人发新消息，先查看 newMessages，判断不需要你参与可直接沉睡，若参与了则下次想睡需再等观察窗口。潜水时长推荐 5~120 分钟，普通消息概率 0.05；@/名字/关键词/提问唤醒建议保持开启。需要等特定某人/某几人时，可额外设置 triggers.speakerIds。',
+        recommendedHint: '发完就收尾，无需观察窗口。后来消息由后台唤醒；需要改变下一次唤醒条件时用 qq_set_wake_config。保留 @、名字、拍一拍和提问等触发条件。',
         batchWindowMs: 8000,
         maxWakePerMinute: 1,
         maxWakePerHour: 12,
@@ -867,8 +869,9 @@ function loadConfig() {
       compaction: {
         enabled: true,
         onlyPrivate: true,        // 只对私聊（owner）做；群聊上下文靠话题自然推进
-        idleMs: 1800000,          // 30 分钟没有**用户**消息（模型自己的动作不重置计时）
-        thresholdTokens: 300000,  // 上下文超过 30 万 token 才值得压（1M 窗口的 30%）
+        idleMs: 300000,           // 5 分钟无用户消息后的安全边界
+        thresholdTokens: 40000,
+        hardThresholdTokens: 80000,
         checkIntervalMs: 60000,   // 每分钟扫一次
         summarize: true           // 压缩前先让模型把要点写进长期记忆
       },
@@ -1924,7 +1927,7 @@ async function main() {
     const sendPromise = new Promise((resolve, reject) => { resolveSend = resolve; rejectSend = reject; });
     sendChain = sendChain.then(async () => {
       try {
-        if (assertSendAllowed) assertSendAllowed();
+        if (assertSendAllowed) {await waitReplyFloorV2(key);assertSendAllowed();}
         // 语音条比图片大、要过一次 SILK 转码，给 60s 预算（文本/图片共用同一 sendChain，
         // 所以这条语音发完之前后面的文本会自然排队，不会插队到语音前面）。
         const httpUrl = String(cfg.snowluma?.httpUrl || 'http://127.0.0.1:3000').replace(/\/+$/, '');
@@ -1946,6 +1949,7 @@ async function main() {
           const hint = res.status === 426 ? '（HTTP 426：snowluma.httpUrl 可能指向了 WebSocket 端口）' : '';
           throw new Error(`OneBot ${action} 失败: ${body.wording || body.retcode || res.status}${hint}`);
         }
+        sendTiming.sent(key);
         resolveSend(body.data);
       } catch (error) {
         rejectSend(error);
@@ -2046,7 +2050,7 @@ async function main() {
     const sendPromise = new Promise((resolve, reject) => { resolveSend = resolve; rejectSend = reject; });
     sendChain = sendChain.then(async () => {
       try {
-        if (assertSendAllowed) assertSendAllowed();
+        if (assertSendAllowed) {await waitReplyFloorV2(key);assertSendAllowed();}
         // 文件要过一遍上传（大文件更慢），给 120s 预算；与文本/语音/图片共用 sendChain，
         // 所以文件传完之前后面的文本会自然排队，不会出现"消息先于文件到达"。
         const httpUrl = String(cfg.snowluma?.httpUrl || 'http://127.0.0.1:3000').replace(/\/+$/, '');
@@ -2253,6 +2257,7 @@ async function main() {
       try {
         // 真人发表情前通常会有短暂停顿，避免“文字刚发完表情立刻跟上”的机械感。
         await sleep(randInt(800, 2000));
+        await waitReplyFloorV2(key);
         assertSendAllowed();
         const res = await fetch(`${httpUrl}/${action}`, {
           method: 'POST',
@@ -2268,6 +2273,7 @@ async function main() {
           const hint = res.status === 426 ? '（HTTP 426：snowluma.httpUrl 可能指向了 WebSocket 端口，请检查 config.json 的 snowluma.httpUrl 是否为 OneBot HTTP API 地址）' : '';
           throw new Error(`OneBot ${action} 失败: ${body.wording || body.retcode || res.status}${hint}`);
         }
+        sendTiming.sent(key);
         sendResolve(body.data);
       } catch (error) {
         sendReject(error);
@@ -2728,6 +2734,12 @@ async function main() {
   // ── Token 用量账本（控制台「令牌与花费」） ───────────────────────────────
   // 权威总量取 DSH 的 tokenUsage 投影（整条会话日志累计，含桥接启动前的历史），
   // 逐轮明细由 assistant/message 的 usage 折叠而来；花费在读取时按价目表折算。
+  const sendTiming = createSendTiming({getState:key=>socialV2.conversations.get(key),getConfig:()=>cfg.socialV2?.send??{},sleep});
+  async function waitReplyFloorV2(key) {
+    if(currentMode!=='reserved2')return;
+    await sendTiming.wait(key,captureSendGuard(key,false));
+  }
+  const imageObservations = createImageObservations({file:path.join(STATE_DIR,'image-observations.json')});
   const priceTable = resolvePriceTable(cfg.pricing);
   let tokenAudit;
   const tokenLedger = createTokenLedger({
@@ -4871,7 +4883,7 @@ async function main() {
           // send：数值归一化
           if (body.send && typeof body.send === 'object') {
             merged.send = { ...(current.send ?? {}), ...body.send };
-            for (const k of ['burstMaxMessages', 'burstIntervalMinMs', 'burstIntervalMaxMs', 'longGapProbability', 'longGapMinMs', 'longGapMaxMs', 'maxSendPerMinute', 'maxSendPerHour', 'maxMessageChars', 'maxGapMs', 'gapBaseMs', 'gapPerCharMs']) {
+            for (const k of ['firstReplyMinMs', 'firstReplyMinMsGroup', 'burstMaxMessages', 'burstIntervalMinMs', 'burstIntervalMaxMs', 'longGapProbability', 'longGapMinMs', 'longGapMaxMs', 'maxSendPerMinute', 'maxSendPerHour', 'maxMessageChars', 'maxGapMs', 'gapBaseMs', 'gapPerCharMs']) {
               if (merged.send[k] !== undefined) {
                 const n = Number(merged.send[k]);
                 merged.send[k] = Number.isFinite(n) ? n : current.send?.[k] ?? 0;
@@ -4879,6 +4891,8 @@ async function main() {
                 if (k !== 'longGapProbability') merged.send[k] = Math.max(0, Math.round(merged.send[k]));
               }
             }
+            for(const name of ['firstReplyMinMs','firstReplyMinMsGroup'])if(merged.send[name]!==undefined)merged.send[name]=Math.min(300000,merged.send[name]);
+            if(body.send.enforceMinimumGap!==undefined)merged.send.enforceMinimumGap=body.send.enforceMinimumGap===true;
             if (merged.send.longGapProbability !== undefined) merged.send.longGapProbability = Math.min(1, Math.max(0, Number(merged.send.longGapProbability) || 0));
             if (merged.send.burstEnabled !== undefined) merged.send.burstEnabled = merged.send.burstEnabled === true;
             if (merged.send.recommendedHint !== undefined) merged.send.recommendedHint = String(merged.send.recommendedHint ?? '');
@@ -4955,6 +4969,21 @@ async function main() {
             }
             if (merged.feedback.notifyOwnerOnError !== undefined) merged.feedback.notifyOwnerOnError = merged.feedback.notifyOwnerOnError === true;
           }
+          for (const group of ['economy','compaction']) {
+            if (body[group] !== undefined) {
+              if (!body[group] || typeof body[group] !== 'object' || Array.isArray(body[group])) {sendJson({ok:false,error:'配置分组无效'},400);return;}
+              merged[group]={...(current[group]??{})};
+              const bools=group==='economy'?['enabled','ownerTaskMode']:['enabled','onlyPrivate','summarize'];
+              for(const name of bools)if(name in body[group])merged[group][name]=body[group][name]===true;
+              const ranges=group==='economy'?{chatMaxRequests:[2,100],taskMaxRequests:[2,500],biliMaxRequests:[2,500],biliMaxInputTokens:[20000,50000000],chatMaxInputTokens:[20000,10000000],taskMaxInputTokens:[20000,50000000],maxRepeatedFailures:[1,10],maxModelFailures:[1,10]}:{thresholdTokens:[20000,500000],hardThresholdTokens:[30000,900000],idleMs:[60000,86400000],checkIntervalMs:[10000,600000]};
+              for(const [name,[min,max]] of Object.entries(ranges))if(name in body[group]){
+                const value=body[group][name];
+                if(typeof value!=='number'||!Number.isSafeInteger(value)||value<min||value>max){sendJson({ok:false,error:group+'.'+name+' 超出范围'},400);return;}
+                merged[group][name]=value;
+              }
+            }
+          }
+          if((merged.compaction?.thresholdTokens??40000)>=(merged.compaction?.hardThresholdTokens??80000)){sendJson({ok:false,error:'软阈值必须小于硬上限'},400);return;}
           // context：数值归一化
           if (body.context && typeof body.context === 'object') {
             merged.context = { ...(current.context ?? {}), ...body.context };
@@ -5094,7 +5123,8 @@ async function main() {
             wakeSafety: computeWakeSafetyV2(st.wakeConfig),
             unreadCount: st.unread.length,
             recentCount: st.recentMessages.length,
-            lastWakeReason: st.lastWakeReason,
+            lastBudgetLimit: st.lastBudgetLimit ?? null, contextBlocked: st.contextBlocked ?? null,
+              lastWakeReason: st.lastWakeReason,
             lastAiReplyAt: st.lastAiReplyAt
           });
           return;
@@ -5223,6 +5253,7 @@ async function main() {
               contextTokens: currentContextTokensV2(k),
               compactedThisRound: !!st.idleCompactedAt,
               compacting: !!st.idleCompactingAt,
+              contextBlocked:st.contextBlocked??null,lastBudgetLimit:st.lastBudgetLimit??null,measuredAfterCompaction:st.contextCompactedSample!==contextSampleIdV2(latestParentRequestV2(k)),
               wouldCompactNow: !!decision
             });
           }
@@ -5253,13 +5284,13 @@ async function main() {
           const runSt = socialV2.conversations.get(runKey);
           if (!runSt) { sendJson({ ok: false, error: '该会话还没有二代状态（先让它收一条消息）' }, 404); return; }
           if (!state.sessions[runKey]) { sendJson({ ok: false, error: '该会话还没有 DSH session' }, 409); return; }
-          if (runSt.idleCompactingAt) { sendJson({ ok: false, error: '已经有一次压缩在跑' }, 409); return; }
+          if (runSt.idleCompactingAt || isConversationBusyV2(runKey,runSt)) { sendJson({ ok: false, error: '会话忙碌，不能打断工具链压缩' }, 409); return; }
           const decision = idleCompactDecisionV2(runKey, runSt);
           const force = body.force === true;
           if (!decision && !force) {
             sendJson({
               ok: false,
-              error: `未到闲置边界：需要会话空闲满 ${Math.round((Number(cfg.socialV2?.compaction?.idleMs) || 1800000) / 60000)} 分钟，且上下文超过 ${Math.round((Number(cfg.socialV2?.compaction?.thresholdTokens) || 300000) / 1000)}k token。可传 force:true 强制跑一次。`
+              error: `未到闲置边界：需要会话空闲满 ${Math.round((Number(cfg.socialV2?.compaction?.idleMs) || 300000) / 60000)} 分钟，且上下文超过 ${Math.round((Number(cfg.socialV2?.compaction?.thresholdTokens) || 40000) / 1000)}k token。可传 force:true 强制跑一次。`
             }, 409);
             return;
           }
@@ -5272,6 +5303,16 @@ async function main() {
           void idleCompactV2(runKey, effective).catch((error) => log(`[compaction] 手动触发异常 ${runKey}: ${error?.message ?? error}`));
           sendJson({ ok: true, started: true, forced: !decision, key: runKey, contextTokensBefore: effective.ctxTokens });
           return;
+        }
+        if (req.method === 'POST' && url.pathname === '/api/socialV2/budget-event') {
+          if (req.headers['x-agent-token']) {sendJson({ok:false,error:'仅管理端可用'},403);return;}
+          const b=await readBody();const key=reverse.get(String(b.sessionId));
+          if(!key){log('[qq-budget] 子任务 '+String(b.sessionId).slice(0,80)+' '+String(b.reason).slice(0,100));sendJson({ok:true});return;}
+          const st=getSocialV2State(key);
+          st.lastBudgetLimit={at:Date.now(),turn:Number(b.turn)||0,requests:Number(b.requests)||0,inputTokens:Number(b.inputTokens)||0,reason:String(b.reason||'预算达到上限').slice(0,100)};
+          markReadCalledKeys.add(key);ensureWakeableV2(st,{key});saveSocialV2State();
+          log('[qq-budget] '+key+' '+JSON.stringify(st.lastBudgetLimit));
+          sendJson({ok:true});return;
         }
         if (req.method === 'GET' && url.pathname === '/api/socialV2/agent-context') {
           // 给 DSH 侧插件用：按 DSH session 反查 QQ 会话，返回「每会话不变」的那几段。
@@ -5294,19 +5335,15 @@ async function main() {
           const idText = selfIdentityTextV2();
           if (idText) parts.push(idText.trim());
           parts.push(`【会话令牌】${acSt.agentToken}（调用二代状态工具时请在参数中带上此令牌）`);
-          if (acStickerCfg.enabled !== false && acStickerCfg.includeInPrompt !== false) {
-            const stickerText = buildStickerContext(stickerEntries, acStickerCfg.promptMaxStickers ?? 8);
-            if (stickerText) parts.push(stickerText);
+          parts.push('【记忆与表情】需要回忆时用 qq_recall；新事实用 qq_memory_append 保存；表情按需用 qq_list_stickers 查找。发送成功默认收尾，无需重复 mark_read。');
+          if (!acSt.systemContextSnapshot || acSt.systemContextSnapshot.sid !== sid) {
+            let memory = '';
+            try { memory = selectFactsForInjection(STATE_DIR, key).text.slice(0, 1800); } catch {}
+            acSt.systemContextSnapshot = {sid, memory};
+            saveSocialV2State();
           }
-          let factsText = '';
-          try {
-            const f = selectFactsForInjection(STATE_DIR, key);
-            factsText = f.text;
-          } catch (error) {
-            log(`[memory] 长期记忆渲染失败（已跳过）：${error?.message ?? error}`);
-          }
-          if (factsText) parts.push(factsText);
-          sendJson({ ok: true, key, role: { name: roleState.role ?? null, injectedChars: roleHint.length, limit: roleInjectMaxChars }, text: parts.join('\n\n') });
+          if (acSt.systemContextSnapshot.memory) parts.push(acSt.systemContextSnapshot.memory);
+          sendJson({ ok: true, key, economy: cfg.socialV2?.economy ?? {}, ownerTaskMode: sessionTier(key,currentMode,cfg)==='owner' && cfg.socialV2?.economy?.ownerTaskMode===true, role: { name: roleState.role ?? null, injectedChars: roleHint.length, limit: roleInjectMaxChars }, text: parts.join('\n\n') });
           return;
         }
         if (req.method === 'GET' && url.pathname === '/api/socialV2/recall') {
@@ -5495,48 +5532,9 @@ async function main() {
           if (req.headers['x-agent-token'] && !v2SessionAllowed(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
           if (req.headers['x-agent-token'] && !v2ToolEnabled('markRead')) { sendJson({ ok: false, error: '工具未启用：qq_mark_read' }, 403); return; }
           const st = getSocialV2State(key);
-          // 注意：不带 throughSeq 的调用会清空全部未读，这是**有意保留的兼容语义**
-          // （旧 preset 与「没有水位」的收尾调用；见 acknowledgeMessagesV2 的注释与
-          // test-token-economy 的 legacy 用例）。当前 preset 会明确要求带上 readThroughSeq 水位。
           const throughSeq = requestedReadThroughSeqV2(st, body, !!req.headers['x-agent-token']);
-          // 如果当前已经是“潜水”唤醒配置，且还有**模型没看过**的消息，不允许用 mark_read 直接收尾，
-          // 避免把没看到的消息一起标成已读。
-          //
-          // 但有一条常见路径必须放行：模型直接给出覆盖式水位（throughSeq 已盖过全部未读），
-          // 那就是「一次读完并收尾」的合法写法。以前这里会再要求它调一次 qq_get_unread_messages，
-          // 等于给收尾凭空加一次工具往返 —— 私聊连续来消息时，这一来一回正好把后续消息全堵在
-          // 「会话繁忙」里，用户体感就是「回得特别慢」。
-          const seenSet = st.modelSeenSeqs instanceof Set ? st.modelSeenSeqs : new Set(st.modelSeenSeqs || []);
-          const uncoveredSeq = (st.unread || [])
-            .filter((m) => !seenSet.has(m.seq))
-            .reduce((mx, m) => Math.max(mx, Number(m.seq) || 0), 0);
-          const coverAll = Number.isSafeInteger(throughSeq) && throughSeq >= uncoveredSeq;
-          if (isSleepingConfigV2(st.wakeConfig) && preSleepWaitBlockedV2(st, key) && !coverAll) {
-            const preSleepMs = preSleepWaitMsForV2(key);
-            const remaining = Math.max(0, preSleepMs - ((st.lastIncomingAt || 0) ? Date.now() - st.lastIncomingAt : 0));
-            const remainMin = Math.ceil(remaining / 60000);
-            sendJson({
-              ok: false,
-              error: `还不能通过 qq_mark_read 直接回到潜水：还需等待约 ${remainMin} 分钟无新消息，或调用 qq_wait_for_messages(timeoutMs=${preSleepMs}) 完成一次沉睡前观察。如果等待期间有人发新消息，请先查看返回的 newMessages；判断不需要你参与就可以直接收尾沉睡，若你参与了则需下次再等观察窗口。`,
-              preSleepWaitMs: preSleepMs,
-              preSleepWaitRemainingMs: remaining
-            }, 400);
-            return;
-          }
-          const markedCount = acknowledgeMessagesV2(st, throughSeq);
-          st.lastActionAt = Date.now();
-          st.wakeConfig.noActionCount = 0;
-          // 防止“有限潜水被 timeout 唤醒后 sleepUntil 被清空、又 mark_read 收尾”导致无定时器无触发条件的静默态。
-          if (!st.wakeConfig.infinite && !st.wakeConfig.sleepUntil) {
-            st.wakeConfig.infinite = true;
-          }
-          ensureWakeableV2(st, { key });
-          st.wakeConfig.confirmedAt = Date.now();
-          st.wakeConfig.confirmedBy = 'mark_read';
-          markReadCalledKeys.add(key);
-          saveSocialV2State();
-          log(`[reserved2] 控制台/工具标记 ${key} 未读已读：${markedCount} 条，已确认下一次唤醒配置`);
-          sendJson({ ok: true, key, markedCount, unreadCount: st.unread.length, readThroughSeq: readThroughSeqV2(st), wakeGuaranteed: computeWakeSafetyV2(st.wakeConfig).guaranteed, wakeSafety: computeWakeSafetyV2(st.wakeConfig), wakeConfig: st.wakeConfig });
+          const result = closeDisplayedMessagesV2(key, st, throughSeq);
+          sendJson({ ok: true, key, ...result });
           return;
         }
         if (req.method === 'POST' && url.pathname === '/api/socialV2/wake-config') {
@@ -5646,19 +5644,7 @@ async function main() {
               return;
             }
           }
-          // 沉睡前强制观察窗口：除非对方明确结束、或已经安静/等待足够时间，否则不允许 AI 聊两句就设置潜水。
-          if (isSleepingConfigV2(next) && preSleepWaitBlockedV2(st, key)) {
-            const preSleepMs = preSleepWaitMsForV2(key);
-            const remaining = Math.max(0, preSleepMs - ((st.lastIncomingAt || 0) ? Date.now() - st.lastIncomingAt : 0));
-            const remainMin = Math.ceil(remaining / 60000);
-            sendJson({
-              ok: false,
-              error: `还不能立刻设置潜水/下一次唤醒：还需等待约 ${remainMin} 分钟无新消息，或调用 qq_wait_for_messages(timeoutMs=${preSleepMs}) 完成一次沉睡前观察。如果等待期间有人发新消息，请先查看返回的 newMessages；判断不需要你参与就可以直接设置并沉睡，若你参与了则需下次再等观察窗口。`,
-              preSleepWaitMs: preSleepMs,
-              preSleepWaitRemainingMs: remaining
-            }, 400);
-            return;
-          }
+          // Sleeping is a scheduler state, not a reason to reject a safe read receipt.
           const markedCount = acknowledgeOnClose ? acknowledgeMessagesV2(st, throughSeq) : 0;
           st.wakeConfig = next;
           st.wakeConfig.lastWakeAt = st.wakeConfig.lastWakeAt || 0;
@@ -5680,6 +5666,7 @@ async function main() {
           }
           cancelReplyCheckV2(key); // AI 已主动设置新的唤醒配置，取消回复检查
           setupSleepTimerV2(key);
+          scheduleUnreadFollowUpV2(key, st);
           log(`[reserved2] 更新唤醒配置 ${key}: mode=${next.mode} infinite=${next.infinite} sleepUntil=${next.sleepUntil ?? 'null'}`);
           sendJson({ ok: true, key, markedCount, unreadCount: st.unread.length, readThroughSeq: readThroughSeqV2(st), wakeConfig: next, wakeSafety: computeWakeSafetyV2(next) });
           return;
@@ -5886,7 +5873,7 @@ async function main() {
             const delays = computeGapsV2(messages, 'auto', undefined, undefined, sendCfg);
             const sentMessages = await sendMessagesV2(key, messages, delays);
             recordSentMessagesV2(key, sentMessages);
-            st.lastAiReplyAt = now;
+            st.lastAiReplyAt = Date.now();
             st.lastActionAt = now;
             st.wakeConfig.noActionCount = 0;
             saveSocialV2State();
@@ -6004,6 +5991,8 @@ async function main() {
           const delays = computeGapsV2(messages, gapMode, gapMs, gaps, sendCfg);
           // 先做发送频率检查并预占额度，再解析引用目标，避免未限流的引用查询打爆 OneBot。
           const st = getSocialV2State(key);
+          const closeAfterSend = body.close !== false && v2ToolEnabled('markRead');
+          const sendThroughSeq = closeAfterSend ? requestedReadThroughSeqV2(st, body, true) : null;
           const now = Date.now();
           const maxPerMinute = Number(sendCfg.maxSendPerMinute) || 0;
           const maxPerHour = Number(sendCfg.maxSendPerHour) || 0;
@@ -6036,17 +6025,19 @@ async function main() {
           try {
             const sentMessages = await sendMessagesV2(key, messages, delays, actualReplyToMessageId, atUserId);
             recordSentMessagesV2(key, sentMessages);
-            st.lastAiReplyAt = now;
+            st.lastAiReplyAt = Date.now();
             st.lastActionAt = now;
             st.wakeConfig.noActionCount = 0;
             saveSocialV2State();
             log(`[reserved2] 工具统一发送 ${key}: 成功 ${sentMessages.length}/${messages.length} 条`);
             appendActivity(`${key} [reserved2] 工具统一发送：成功 ${sentMessages.length}/${messages.length} 条`);
             if (sentMessages.length > 0) scheduleReplyCheckV2(key);
+            const notedImages = imageObservations.note(key,state.sessions[key],body.imageNotes);
+            const closeResult = closeAfterSend && socialV2.conversations.get(key)===st ? closeDisplayedMessagesV2(key, st, sendThroughSeq) : {};
             const burstHint = messages.length >= 3 ? '你已经连发了多条，确认是必要的吗？真人很少一口气补完。' : undefined;
             const spaceWarn = findCjkSpaceWarning(messages);
             const splitWarn = findSplitBoundaryWarning(messages);
-            sendJson({ ok: true, key, sent: sentMessages.length, failed: messages.length - sentMessages.length, delays, quoted: quotedInfo, ...(burstHint ? { hint: burstHint } : {}), ...(spaceWarn ? { warn: spaceWarn } : {}), ...(splitWarn ? { splitWarn } : {}) });
+            sendJson({ ok: true, key, sent: sentMessages.length, failed: messages.length - sentMessages.length, delays, quoted: quotedInfo, notedImages, ...closeResult, ...(burstHint ? { hint: burstHint } : {}), ...(spaceWarn ? { warn: spaceWarn } : {}), ...(splitWarn ? { splitWarn } : {}) });
           } catch (error) {
             if (error?.sent?.length) {
               recordSentMessagesV2(key, error.sent);
@@ -6128,7 +6119,7 @@ async function main() {
               await bot.raw('send_poke', { user_id: id });
             }
             st.lastActionAt = now;
-            st.lastAiReplyAt = now;
+            st.lastAiReplyAt = Date.now();
             st.wakeConfig.noActionCount = 0;
             const pokeText = kind === 'group'
               ? `[拍一拍] 我拍了拍 ${targetUserId}`
@@ -6572,7 +6563,7 @@ async function main() {
             });
             const recentLimit = Number(cfg.socialV2?.context?.recentLimit) || 100;
             if (st.recentMessages.length > recentLimit) st.recentMessages.splice(0, st.recentMessages.length - recentLimit);
-            st.lastAiReplyAt = now;
+            st.lastAiReplyAt = Date.now();
             st.lastActionAt = now;
             st.wakeConfig.noActionCount = 0;
             st.preSleepWaitSatisfiedAt = 0;
@@ -7793,7 +7784,8 @@ async function main() {
             return;
           }
           try {
-            const images = await fetchMediaData(media);
+            const fetched = await fetchMediaData(media);
+            const images = fetched.map(img => imageObservations.view(key,state.sessions[key],img,{force:url.searchParams.get('force')==='true'}));
             sendJson({ ok: true, messageId, media, images });
           } catch (error) {
             log(`图片查询失败 ${key} ${messageId}: ${error?.message ?? error}`);
@@ -7889,7 +7881,7 @@ async function main() {
             if (st.sendTimes.length > 500) st.sendTimes = st.sendTimes.slice(-500);
             const sentMessages = await sendMessagesV2(key, [message], [], actualReplyToMessageId, atUserId);
             recordSentMessagesV2(key, sentMessages);
-            st.lastAiReplyAt = now;
+            st.lastAiReplyAt = Date.now();
             st.lastActionAt = now;
             st.wakeConfig.noActionCount = 0;
             saveSocialV2State();
@@ -8104,8 +8096,10 @@ async function main() {
       sendChain = sendChain
         .then(async () => {
           assertSendAllowed();
+          await waitReplyFloorV2(key);
           if (kind === 'private') await withTimeout(bot.sendPrivateMessage(Number(id), text(escapeCqText(part))), SEND_TIMEOUT_MS, `QQ发送 ${kind}:${id}`);
           else await withTimeout(bot.sendGroupMessage(Number(id), text(escapeCqText(part))), SEND_TIMEOUT_MS, `QQ发送 ${kind}:${id}`);
+          sendTiming.sent(key);
         })
         .catch((error) => {
           lastSendFailed.set(key, true);
@@ -8340,6 +8334,7 @@ async function main() {
     const action = kind === 'private' ? 'send_private_msg' : 'send_group_msg';
     const params = kind === 'private' ? { user_id: Number(id), message: segments } : { group_id: Number(id), message: segments };
     const httpUrl = String(cfg.snowluma?.httpUrl || 'http://127.0.0.1:3000').replace(/\/+$/, '');
+    await waitReplyFloorV2(`${kind}:${id}`);
     const res = await fetch(`${httpUrl}/${action}`, {
       method: 'POST',
       headers: {
@@ -8354,6 +8349,7 @@ async function main() {
       const hint = res.status === 426 ? '（HTTP 426：snowluma.httpUrl 可能指向了 WebSocket 端口，请检查 config.json 的 snowluma.httpUrl 是否为 OneBot HTTP API 地址）' : '';
       throw new Error(`OneBot ${action} 失败: ${body.wording || body.retcode || res.status}${hint}`);
     }
+    sendTiming.sent(`${kind}:${id}`);
     return body.data;
   }
 
@@ -9468,6 +9464,10 @@ async function main() {
             // 只恢复「已压过」的标记；idleCompactingAt 属于进程内的锁，不落盘，
             // 否则崩溃/重启后会永久卡在「正在压缩」。
             idleCompactedAt: Number(val.idleCompactedAt) || 0,
+            contextCompactedSample: typeof val.contextCompactedSample==='string'?val.contextCompactedSample:'',
+            contextBlocked: typeof val.contextBlocked==='string'?val.contextBlocked:null,
+            contextRetryAt: Number(val.contextRetryAt)||0, lastBudgetLimit:val.lastBudgetLimit||null,
+            systemContextSnapshot: val.systemContextSnapshot&&typeof val.systemContextSnapshot.sid==='string'&&typeof val.systemContextSnapshot.memory==='string'?{sid:val.systemContextSnapshot.sid,memory:val.systemContextSnapshot.memory.slice(0,1800)}:null,
             preSleepWaitSatisfiedAt: Number(val.preSleepWaitSatisfiedAt) || 0,
             preSleepWaitObservedAt: Number(val.preSleepWaitObservedAt) || 0,
             preSleepWaitAccumMs: Number(val.preSleepWaitAccumMs) || 0,
@@ -9559,6 +9559,9 @@ async function main() {
           stickerCollectTimes: Array.isArray(st.stickerCollectTimes) ? st.stickerCollectTimes.slice(-500) : [],
           lastIncomingAt: st.lastIncomingAt || 0,
           idleCompactedAt: st.idleCompactedAt || 0,
+          contextCompactedSample: st.contextCompactedSample || '', contextBlocked: st.contextBlocked || null,
+          contextRetryAt: st.contextRetryAt || 0, systemContextSnapshot: st.systemContextSnapshot || null,
+          lastBudgetLimit: st.lastBudgetLimit || null,
           preSleepWaitSatisfiedAt: st.preSleepWaitSatisfiedAt || 0,
           preSleepWaitObservedAt: st.preSleepWaitObservedAt || 0,
           preSleepWaitAccumMs: st.preSleepWaitAccumMs || 0,
@@ -11170,7 +11173,8 @@ async function main() {
   }
 
   function requestedReadThroughSeqV2(st, body, isAgent) {
-    if (!Object.prototype.hasOwnProperty.call(body, 'throughSeq')) return null;
+    // An omitted agent cursor means only messages actually displayed, never all unread.
+    if (!Object.prototype.hasOwnProperty.call(body, 'throughSeq')) return isAgent ? readThroughSeqV2(st) : null;
     const seq = body.throughSeq;
     const max = isAgent ? readThroughSeqV2(st) : st.lastUnreadSeq;
     if (!Number.isSafeInteger(seq) || seq < 0 || seq > max || seq > st.lastUnreadSeq) {
@@ -11179,6 +11183,29 @@ async function main() {
       throw error;
     }
     return seq;
+  }
+
+  function closeDisplayedMessagesV2(key, st, throughSeq) {
+    const markedCount = acknowledgeMessagesV2(st, throughSeq);
+    st.lastActionAt = Date.now();
+    st.wakeConfig.noActionCount = 0;
+    if (!st.wakeConfig.infinite && !st.wakeConfig.sleepUntil) st.wakeConfig.infinite = true;
+    ensureWakeableV2(st, { key });
+    st.wakeConfig.confirmedAt = Date.now();
+    st.wakeConfig.confirmedBy = 'mark_read';
+    markReadCalledKeys.add(key);
+    const followUp = scheduleUnreadFollowUpV2(key, st);
+    saveSocialV2State();
+    return { markedCount, unreadCount: st.unread.length, readThroughSeq: readThroughSeqV2(st),
+      closed: true, backgroundFollowUp: followUp,
+      hint: '本轮已收尾。后来消息由后台安排下一轮，无需等待或重复标读。' };
+  }
+
+  function scheduleUnreadFollowUpV2(key, st) {
+    if (!st.unread.length || (st.lastUnreadSeq||0) <= (st.lastCloseReplaySeq||0)) return false;
+    st.lastCloseReplaySeq=st.lastUnreadSeq;
+    scheduleWakeV2(key,'message');
+    return true;
   }
 
   function acknowledgeMessagesV2(st, throughSeq) {
@@ -11506,7 +11533,7 @@ async function main() {
     const st = getSocialV2State(key);
     // 防重入：如果该会话已经有一个 DSH turn 在进行中（AI 正在思考/调用工具），
     // 或已有排队/在途 prompt，则不再投递新的候选唤醒，避免“思维链进行中又塞入一个 question 唤醒”。
-    if (isConversationBusyV2(key, st)) {
+    if (st.idleCompactingAt || isConversationBusyV2(key, st)) {
       if (!Array.isArray(st.pendingWakeReasons)) st.pendingWakeReasons = [];
       const seq = st.lastUnreadSeq || 0;
       if (!st.pendingWakeReasons.some((r) => r && r.reason === reason && r.seq === seq)) {
@@ -11517,6 +11544,9 @@ async function main() {
       log(`[reserved2] 会话繁忙，暂存唤醒原因 ${key}（${reason}@seq${seq}，原因=${busyReasonV2(key, st)}）`);
       return;
     }
+    if (!await prepareContextForWakeV2(key, st, reason)) return;
+    // Compaction awaits network IO: recheck ownership and permissions before delivery.
+    if (currentMode !== 'reserved2' || socialV2.paused || !isSessionAllowedInCurrentMode(key)) return;
     // 唤醒频率硬限制：超限则**延后重试**，不能直接丢弃。直接 return 的后果：
     //   · timeout 唤醒时 setupSleepTimerV2 已经清空 sleepTimer，丢弃后这个会话会停在
     //     「infinite=false、sleepUntil 已过期、没有任何定时器」的静默态，除非重启或
@@ -11674,10 +11704,34 @@ async function main() {
   // 代价（有意为之）：轮换后模型手上只剩 system prompt + 长期记忆，不再有原始
   // 对话。用「边界上一次完整重算」换「整段对话的缓存全命中」，这笔账是划算的。
 
+  function latestParentRequestV2(key) {
+    const sid = state.sessions[key];
+    return sid ? tokenLedger.requests().find(r => r.sessionId === sid) : null;
+  }
+  function contextSampleIdV2(row) { return row ? [row.sessionId,row.turn,row.step,row.retry].join(':') : ''; }
+  async function prepareContextForWakeV2(key, st, reason) {
+    const c = cfg.socialV2?.compaction ?? {};
+    if (c.enabled === false) return true;
+    if (c.onlyPrivate !== false && !String(key).startsWith('private:')) return true;
+    const row = latestParentRequestV2(key);
+    const hard = Math.max(20000, Number(c.hardThresholdTokens) || 80000);
+    if (!row || currentContextTokensV2(key) < hard || st.contextCompactedSample === contextSampleIdV2(row)) return true;
+    if (st.idleCompactingAt || Date.now() < (st.contextRetryAt || 0)) return false;
+    const result = await idleCompactV2(key, {idleMs: 0, ctxTokens: currentContextTokensV2(key), skipSummarize: true});
+    if (result?.ok) { st.contextBlocked = null; st.contextRetryAt = 0; return true; }
+    st.contextBlocked = '上下文达到硬上限，但压缩未成功；未读消息已保留，请查看压缩状态。';
+    st.contextRetryAt = Date.now() + 300000;
+    // One retry only after a future real event; never create a model polling loop.
+    if (!Array.isArray(st.pendingWakeReasons)) st.pendingWakeReasons=[];
+    if (!st.pendingWakeReasons.some(r => r.reason === reason)) st.pendingWakeReasons.push({reason,seq:st.lastUnreadSeq||0});
+    saveSocialV2State(); log('[compaction] ' + st.contextBlocked);
+    return false;
+  }
+
   /** 该会话当前上下文有多大：取账本里最近一步的**输入侧** token。 */
   function currentContextTokensV2(key) {
     try {
-      const row = tokenLedger.recent(300).find((r) => r && r.key === key);
+      const row = latestParentRequestV2(key);
       if (!row) return 0;
       return (row.cacheMiss || 0) + (row.cacheHit || 0) + (row.cacheWrite || 0);
     } catch (error) {
@@ -11704,13 +11758,15 @@ async function main() {
     if (!state.sessions[key]) return null;
     const lastUser = st.lastIncomingAt || 0;
     if (!lastUser) return null;
-    const idleMs = Math.max(60000, Number(c.idleMs) || 1800000);
+    const idleMs = Math.max(60000, Number(c.idleMs) || 300000);
     if (now - lastUser < idleMs) return null;
     // 模型自己刚动过（主动冒泡/工具调用）就先不动手：那说明它还在为这条会话干活，
     // 压缩会把正在用的上下文改掉。半程保护，避免它频繁主动发言导致永远压不了。
     if (now - (st.lastActionAt || 0) < Math.floor(idleMs / 2)) return null;
-    const threshold = Math.max(10000, Number(c.thresholdTokens) || 300000);
+    const threshold = Math.max(10000, Number(c.thresholdTokens) || 40000);
     const ctxTokens = currentContextTokensV2(key);
+    if (Date.now() < (st.contextRetryAt||0)) return null;
+    if (st.contextCompactedSample === contextSampleIdV2(latestParentRequestV2(key))) return null;
     if (ctxTokens < threshold) return null;
     return { idleMs: now - lastUser, ctxTokens };
   }
@@ -11852,28 +11908,32 @@ async function main() {
         if (!delivered) {
           st.idleCompactedAt = Date.now();
           log(`[compaction] ${key} 记忆整理投递失败，本次跳过压缩`);
-          return;
+          return {ok:false,error:'记忆整理投递失败'};
         }
         const finished = await waitForTurnIdleV2(key);
         if (!finished) {
           // 没等到总结跑完就压 = 把正在写的记忆掐掉。同上，宁可这次不压。
           st.idleCompactedAt = Date.now();
           log(`[compaction] ${key} 记忆整理未在时限内完成，本次跳过压缩`);
-          return;
+          return {ok:false,error:'记忆整理超时'};
         }
       }
       // ② 原地压缩：会话 id 和桥接映射都不变，只是 DSH 把历史压成摘要 + 保留尾部。
       const result = await compactSessionV2(key);
       st.idleCompactedAt = Date.now();
       if (result.ok) {
+        st.contextCompactedSample = contextSampleIdV2(latestParentRequestV2(key));
+        st.systemContextSnapshot = null;
         log(`[compaction] 闲置压缩完成 ${key}：${result.text || '已压缩'}（会话 ${state.sessions[key] ?? '无'} 未变）`);
       } else {
         // 失败也置 idleCompactedAt：否则每个扫描周期都会重试一次，每次都白跑
         // 一遍记忆整理（那是真金白银的模型调用）。等下一条用户消息再解锁。
         log(`[compaction] 闲置压缩失败 ${key}：${result.error}`);
       }
+      return result;
     } catch (error) {
       log(`[compaction] 闲置压缩异常 ${key}: ${error?.message ?? error}`);
+      return {ok:false,error:error?.message??String(error)};
     } finally {
       st.idleCompactingAt = 0;
       saveSocialV2State();
@@ -11908,7 +11968,7 @@ async function main() {
       }
     }, every);
     idleCompactionTimer.unref?.();
-    log(`[compaction] 闲置压缩已启用：安静 ${Math.round((Number(c.idleMs) || 1800000) / 60000)} 分钟且上下文超过 ${Math.round((Number(c.thresholdTokens) || 200000) / 1000)}k token 时触发`);
+    log(`[compaction] 闲置压缩已启用：安静 ${Math.round((Number(c.idleMs) || 300000) / 60000)} 分钟且上下文超过 ${Math.round((Number(c.thresholdTokens) || 40000) / 1000)}k token 时触发`);
   }
 
   function scheduleReplyCheckV2(key) {
@@ -13450,6 +13510,7 @@ async function main() {
       if (!dshReady || currentMode !== 'reserved2' || !cfg.ownerQQ) return null;
       const key = `private:${cfg.ownerQQ}`;
       if (!isSessionAllowedInCurrentMode(key) || modePreset(key, currentMode, cfg) !== 'qq-chat-owner' || isConversationBusyV2(key, getSocialV2State(key))) return null;
+      if (!await prepareContextForWakeV2(key, getSocialV2State(key), 'biliAutomatic')) return null;
       const sessionId = await ensureSession(key);
       return { sessionId, reportTarget: key };
     },

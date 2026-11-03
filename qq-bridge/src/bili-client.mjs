@@ -39,12 +39,12 @@ export function createBiliClient({ python, script, dataDir, clientFactory, trans
     if (typeof content !== 'string' || content.length > 4_000_000) throw new Error('B站服务返回无效');
     try { return JSON.parse(content); } catch { throw new Error('B站服务返回无法解析'); }
   }
-  async function readSubtitledVideo(bvid, maxChars = 12000) {
-    if (!BV.test(bvid) || !Number.isInteger(maxChars) || maxChars < 1 || maxChars > 50000) throw new Error('视频参数无效');
+  async function readSubtitledVideo(bvid, maxChars = 4000, offset = 0) {
+    if (!BV.test(bvid) || !Number.isInteger(maxChars) || maxChars < 1 || maxChars > 50000 || !Number.isSafeInteger(offset) || offset < 0) throw new Error('视频参数无效');
     const data = await call('bili_subtitle', { bvid });
     // Empty, missing, or failed subtitle is not a watched video.
     if (typeof data.text !== 'string' || !data.text.trim()) return { bvid, available: false };
-    return { bvid, available: true, title: String(data.title || '').slice(0, 300), language: String(data.language || '').slice(0, 100), text: data.text.slice(0, maxChars), truncated: data.text.length > maxChars };
+    return { bvid, available: true, title: String(data.title || '').slice(0, 300), language: String(data.language || '').slice(0, 100), text: data.text.slice(offset, offset + maxChars), offset, nextOffset:offset+maxChars<data.text.length?offset+maxChars:null, totalChars:data.text.length, truncated: offset>0 || data.text.length > maxChars };
   }
   return { call, readSubtitledVideo, async close() { const c = client; client = null; transport = null; if (c) await c.close(); } };
 }

@@ -725,7 +725,7 @@ server.tool(
 
 server.tool(
   'qq_mark_read',
-  '将指定会话已查看的未读消息标记为已读。throughSeq 使用最近读取结果的 readThroughSeq，避免清除读取后才到达的新消息；省略 throughSeq 会按旧行为清空当前全部未读，因此推荐始终带上水位。注意：每次设置潜水/下一次唤醒前，桥接要求先用 qq_wait_for_messages(timeoutMs=300000) 完成一次沉睡前观察：5 分钟内没人说话可 mark_read 收尾沉睡；期间有人发新消息则先查看 newMessages，判断不需要你参与也可直接 mark_read 收尾；若你参与了回复，则下次想睡需重新等待观察窗口。',
+  '结束本轮并确认已查看的消息。throughSeq 可用读取结果的 readThroughSeq；省略时后台仅确认实际展示过的连续消息。无需等待观察窗口，不要反复标读；后来消息保留并交由后台唤醒。',
   {
     key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
     token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
@@ -743,7 +743,7 @@ server.tool(
 
 server.tool(
   'qq_set_wake_config',
-  '设置指定会话的二代唤醒配置：mode/无限期或有限时间/提前唤醒条件（@、名字、关键词、提问、拍一拍、概率、anyMessage、指定成员）。triggers.speakerIds 是可选的“指定群友发言唤醒”：填一个或多个群友 QQ 号后，只要其中任意一位在群里发言就会唤醒你；不设置则不启用。适合在等某个人回复、或某人反应慢怕错过时使用。triggers.poke 开启后，群里有人拍一拍（包括拍你或拍别人）会唤醒你。注意：每次设置潜水/下一次唤醒前需先用 qq_wait_for_messages(timeoutMs=300000) 完成一次沉睡前观察：5 分钟内没人说话可设置并沉睡；期间有人发新消息则先查看 newMessages，判断不需要你参与可直接设置并沉睡；若你参与了回复，则下次想睡需重新等待观察窗口。',
+  '设置指定会话的二代唤醒配置：mode/无限期或有限时间/提前唤醒条件（@、名字、关键词、提问、拍一拍、概率、anyMessage、指定成员）。triggers.speakerIds 是可选的“指定群友发言唤醒”：填一个或多个群友 QQ 号后，只要其中任意一位在群里发言就会唤醒你；不设置则不启用。适合在等某个人回复、或某人反应慢怕错过时使用。triggers.poke 开启后，群里有人拍一拍（包括拍你或拍别人）会唤醒你。无需等待观察窗口，可直接安全收尾；尚未展示或后来到达的消息会保留，由后台安排下一轮，不要反复等待或标读。',
   {
     key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
     token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
@@ -829,9 +829,12 @@ server.tool(
     atUserId: z.union([z.number(), z.string()]).optional().describe('要 @ 的群成员 QQ 号（群聊中用于点名某个人；与引用二选一即可，不要滥用）'),
     gapMode: z.enum(['auto', 'fixed', 'byLength']).optional().describe('auto=桥接随机；fixed=固定间隔；byLength=按字数计算'),
     gapMs: z.number().optional().describe('fixed 模式下的统一间隔（毫秒）'),
-    gaps: z.array(z.number()).optional().describe('fixed 模式下逐条间隔（长度=条数-1）')
+    gaps: z.array(z.number()).optional().describe('fixed 模式下逐条间隔（长度=条数-1）'),
+    close: z.boolean().optional().describe('默认发送成功后收尾，无需再调用 mark_read；还要发表情或继续工作时传 false'),
+    throughSeq: z.number().int().nonnegative().optional().describe('已读水位；省略由后台取已展示水位'),
+    imageNotes: z.array(z.object({hash:z.string(),summary:z.string().max(600)})).max(5).optional().describe('可随回复保存本轮看过图片的简短描述；hash 来自图片工具，避免下次重复识图')
   },
-  async ({ key, token, messages, replyToMessageId, atUserId, gapMode, gapMs, gaps }) => {
+  async ({ key, token, messages, replyToMessageId, atUserId, gapMode, gapMs, gaps, close, throughSeq, imageNotes }) => {
     try {
       let finalMessages = messages;
       if (typeof finalMessages === 'string') {
@@ -853,7 +856,7 @@ server.tool(
       }
       const data = await agentApi('/api/socialV2/send-message', {
         method: 'POST',
-        body: JSON.stringify({ key, messages: finalMessages, replyToMessageId, atUserId: atUserId ?? null, gapMode, gapMs, gaps }),
+        body: JSON.stringify({ key, messages: finalMessages, replyToMessageId, atUserId: atUserId ?? null, gapMode, gapMs, gaps, close, throughSeq, imageNotes }),
         headers: { 'x-agent-token': token },
         timeoutMs: 300000
       });
@@ -1140,11 +1143,12 @@ if (cfg.socialV2?.tools?.getImages !== false) {
     {
       key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
       messageId: z.union([z.number(), z.string()]).describe('要查看的消息 id（QQ 消息 id 可为负数；二代也可用本地 seq）'),
-      token: z.string().optional().describe('二代会话令牌（reserved2 下必填，见唤醒提示中的【会话令牌】）')
+      token: z.string().optional().describe('二代会话令牌（reserved2 下必填，见唤醒提示中的【会话令牌】）'),
+      force: z.boolean().optional().describe('确需重新看原图时设 true；默认复用本会话已看记录或图像描述')
     },
-    async ({ key, messageId, token }) => {
+    async ({ key, messageId, token, force }) => {
       try {
-        const q = new URLSearchParams({ key, messageId: String(messageId) });
+        const q = new URLSearchParams({ key, messageId: String(messageId), force: String(force===true) });
         const data = await agentApi(`/api/images/message?${q.toString()}`, {
           headers: token ? { 'x-agent-token': token } : {},
           timeoutMs: 180000
@@ -1155,6 +1159,7 @@ if (cfg.socialV2?.tools?.getImages !== false) {
         }
         const content = [];
         const textParts = [];
+        for(const img of images)if(img.hash)textParts.push('图像 hash='+img.hash+'；可在发送回复时用 imageNotes 一并记下简短描述。');
         for (const img of images) {
           if (img?.data && img?.mimeType) {
             textParts.push(`[${img.kind === 'face' ? '表情' : '图片'}${img.index ?? ''}${img.text ? ' ' + img.text : ''}]`);

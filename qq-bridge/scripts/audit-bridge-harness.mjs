@@ -24,6 +24,8 @@ import * as sendFileLib from '../src/send-file-lib.js';
 import * as stateAcl from '../src/state-acl.mjs';
 import * as roleCards from '../src/role-card.js';
 import * as proactivePolicy from '../src/proactive-policy.mjs';
+import { createSendTiming } from '../src/send-timing.mjs';
+import { createImageObservations } from '../src/image-observations.mjs';
 import { createMediaFetchCache } from '../src/media-fetch-cache.mjs';
 import { selectForInjection as selectFactsForInjection } from '../src/memory-facts.js';
 import yaml from 'js-yaml';
@@ -33,6 +35,7 @@ import { unwrap, createTurnCollector } from '../src/dsh-client.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 export async function bridgeHarness({ config = {}, savedState, files = {}, globals = {} } = {}) {
+  config=structuredClone(config);config.socialV2??={};config.socialV2.send={enforceMinimumGap:false,...config.socialV2.send};
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'qq-audit-bridge-'));
   fs.mkdirSync(path.join(temp, 'src'));
   fs.mkdirSync(path.join(temp, 'state'));
@@ -159,6 +162,7 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     getSocialV2State, appendSocialV2Message, recordSentMessagesV2,
     buildWakePromptV2, buildWakeSnapshotV2, sendWakePromptV2, socialV2,
     computeGapsV2, armReplyWindowV2, scheduleReplyCheckV2,
+    latestParentRequestV2, currentContextTokensV2, idleCompactDecisionV2, prepareContextForWakeV2, idleCompactV2, compactSessionV2,
     tokenLedger, tokenAudit, recordSessionSnapshot, recordSessionUsage, tokenChildObserver,
     syncStickerLibrary, listStickersForV2, getStickerImageData,
     refreshMode, modeAllowed, trackTurnEvent, replayPendingWakeReasonsV2,
@@ -203,7 +207,7 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     discoverDshLaunchToken: () => '', unwrap, createTurnCollector,
     ...markdown, ...sensitive, ...wait, ...safeFetch, ...forward, ...slang, ...sticker,
     ...modelPrices, ...tokenLedger, ...voiceLib, ...stateAcl, ...presetPrompt, ...sendFileLib,
-    ...roleCards, ...proactivePolicy, createMediaFetchCache, selectFactsForInjection, createTokenAudit, createTokenChildObserver,
+    ...roleCards, ...proactivePolicy, createSendTiming, createImageObservations, createMediaFetchCache, selectFactsForInjection, createTokenAudit, createTokenChildObserver,
     // 桥接的出图出口会调归一化（体积/动图抽帧）：VM 里必须能拿到这几个函数。
     normalizeImageForModel: mediaNormalize.normalizeImageForModel,
     sniffImage: mediaNormalize.sniffImage,

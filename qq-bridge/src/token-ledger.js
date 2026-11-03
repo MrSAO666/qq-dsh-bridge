@@ -533,6 +533,7 @@ export function createTokenLedger({
           liveBuckets: { ...ZERO_BUCKETS },
           liveCost: 0,
           liveByTier: { peak: 0, off: 0 },
+          coveredBuckets: { ...ZERO_BUCKETS }, coveredCost: 0, coveredTier: {peak:0,off:0},
           allCost: 0,
           allByTier: { peak: 0, off: 0 },
           estimated: false,
@@ -547,6 +548,10 @@ export function createTokenLedger({
       entry.estimated ||= p.rates.estimated;
       entry.allCost += p.cost.total;
       entry.allByTier[p.rates.tier] += p.cost.total;
+      if (!isLive) {
+        entry.coveredBuckets=addBuckets(entry.coveredBuckets,s.buckets);
+        entry.coveredCost+=p.cost.total;entry.coveredTier[p.rates.tier]+=p.cost.total;
+      }
       if (isLive) {
         entry.liveBuckets = addBuckets(entry.liveBuckets, s.buckets);
         entry.liveCost += p.cost.total;
@@ -583,6 +588,21 @@ export function createTokenLedger({
     return index;
   }
 
+  // Price known history at its actual model/time; only untimed residual uses baseline pricing.
+  function baselinePrice(base, entry, rawGone) {
+    let covered=entry?.coveredBuckets ?? ZERO_BUCKETS, cost=entry?.coveredCost ?? 0;
+    const byTier={...(entry?.coveredTier??{peak:0,off:0})};
+    if(rawGone && evictionCovered(rawGone)) {
+      covered=addBuckets(covered,rawGone.buckets);cost+=rawGone.cost||0;
+      byTier.peak+=rawGone.byTier?.peak||0;byTier.off+=rawGone.byTier?.off||0;
+    }
+    // A partial snapshot can have more samples than its projection. Never price negative residual.
+    const residual=Object.fromEntries(Object.keys(ZERO_BUCKETS).map(k=>[k,Math.max(0,(base.buckets[k]||0)-(covered[k]||0))]));
+    const p=priceUsage(residual,{model:base.model,at:base.t||now(),table:priceTable});
+    cost+=p.cost.total;byTier[p.rates.tier]+=p.cost.total;
+    return {cost,byTier,estimated:totalTokensOf(residual)>0||p.rates.estimated};
+  }
+
   /** 把一个会话的索引项 + 投影基线合成「会话视图」。 */
   function sessionView(key, sessionIds, index) {
     const view = {
@@ -617,10 +637,10 @@ export function createTokenLedger({
       view.byTier.off += (entry?.liveByTier.off ?? 0) + (gone?.byTier.off ?? 0);
       view.estimated ||= (entry?.estimated ?? false) || (gone?.estimated ?? false);
       if (base) {
-        const p = priceUsage(base.buckets, { model: base.model, at: base.t || now(), table: priceTable });
-        cost += p.cost.total;
-        view.byTier[p.rates.tier] += p.cost.total;
-        view.estimated ||= p.rates.estimated;
+        const p = baselinePrice(base, entry, rawGone);
+        cost += p.cost;
+        view.byTier.peak += p.byTier.peak; view.byTier.off += p.byTier.off;
+        view.estimated ||= p.estimated;
       }
       view.cost += cost;
       if (entry) {
@@ -805,6 +825,7 @@ export function createTokenLedger({
     // 权威总额（含窗口之外）的三个组成部分，按 summary() 的同一口径在**同一次遍历**里累加：
     //   ① 被淘汰采样的累计（evicted）② 投影基线自身 ③ 仍然逐轮可拆、且没被基线覆盖的采样（seq > 基线 seq）。
     // 非 live 采样绝不能计入：基线已经包含了它的历史，再算一次就是重复计费，offChartCost 会凭空变大。
+    const coveredPrices = new Map();
     let ledgerCost = 0;
     let ledgerBuckets = { ...ZERO_BUCKETS };
     for (const e of evicted.values()) {
@@ -814,7 +835,7 @@ export function createTokenLedger({
     }
     for (const base of baselines.values()) {
       // 与 sessionView() 同口径：基线没有逐时明细，按快照时刻（缺失时取当前）整体计价。
-      ledgerCost += priceUsage(base.buckets, { model: base.model, at: base.t || now(), table: priceTable }).cost.total;
+      // Costs are added after collecting exact historical request prices below.
       ledgerBuckets = addBuckets(ledgerBuckets, base.buckets);
     }
     for (const s of samples.values()) {
@@ -822,6 +843,11 @@ export function createTokenLedger({
       const p = priceUsage(s.buckets, { model: s.model, at: s.t || endAt, table: priceTable });
       const tokens = totalTokensOf(s.buckets);
       const base = baselines.get(s.sessionId);
+      if (base && s.seq <= base.seq) {
+        const c=coveredPrices.get(s.sessionId)||{coveredBuckets:{...ZERO_BUCKETS},coveredCost:0,coveredTier:{peak:0,off:0}};
+        c.coveredBuckets=addBuckets(c.coveredBuckets,s.buckets);c.coveredCost+=p.cost.total;c.coveredTier[p.rates.tier]+=p.cost.total;
+        coveredPrices.set(s.sessionId,c);
+      }
       if (!base || s.seq > base.seq) {
         ledgerCost += p.cost.total;
         ledgerBuckets = addBuckets(ledgerBuckets, s.buckets);
@@ -854,6 +880,7 @@ export function createTokenLedger({
       estimated ||= p.rates.estimated;
       countedSamples += 1;
     }
+    for (const base of baselines.values())ledgerCost+=baselinePrice(base,coveredPrices.get(base.sessionId),evicted.get(base.sessionId)).cost;
     for (const row of rows) {
       // 空桶也要有档位：用该时刻真实的峰谷归属，而不是留空。
       if (row.tier === null) row.tier = isPeakAt(row.t, priceTable) ? 'peak' : 'off';

@@ -12,7 +12,8 @@ const fake = {
 const client = createBiliClient({ python: 'python3', script: 'mcp_server.py', dataDir: path.resolve('bili-state'), clientFactory: () => fake, transportFactory: () => ({}) });
 assert.deepEqual(await client.readSubtitledVideo('BV1234567890'), { bvid: 'BV1234567890', available: false });
 response = { title: '标题', language: '中文', text: '示例字幕' };
-assert.deepEqual(await client.readSubtitledVideo('BV1234567890', 2), { bvid: 'BV1234567890', available: true, title: '标题', language: '中文', text: '示例', truncated: true });
+assert.deepEqual(await client.readSubtitledVideo('BV1234567890', 2), { bvid: 'BV1234567890', available: true, title: '标题', language: '中文', text: '示例', offset:0,nextOffset:2,totalChars:4,truncated: true });
+assert.equal((await client.readSubtitledVideo('BV1234567890', 2, 2)).text,'字幕');
 await assert.rejects(client.readSubtitledVideo('invalid'), /视频参数/);
 await assert.rejects(client.call('bili_reply', {}), /未授权/);
 await client.close();

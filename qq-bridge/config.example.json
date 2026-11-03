@@ -184,15 +184,19 @@
       "noActionLimit": 3,
       "maxWakeConfigReminders": 2
     },
+    "economy": {"enabled":true,"ownerTaskMode":false,"chatMaxRequests":8,"taskMaxRequests":40,"chatMaxInputTokens":400000,"taskMaxInputTokens":1500000,"biliMaxRequests":40,"biliMaxInputTokens":1500000,"maxRepeatedFailures":2,"maxModelFailures":2},
     "compaction": {
       "enabled": true,
       "onlyPrivate": true,
-      "idleMs": 1800000,
-      "thresholdTokens": 300000,
+      "idleMs": 300000,
+      "thresholdTokens": 40000,
+      "hardThresholdTokens": 80000,
       "checkIntervalMs": 60000,
       "summarize": true
     },
     "send": {
+      "firstReplyMinMs": 0,
+      "enforceMinimumGap": true,
       "burstEnabled": true,
       "burstMaxMessages": 8,
       "burstIntervalMinMs": 1000,

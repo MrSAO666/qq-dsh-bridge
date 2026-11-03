@@ -621,12 +621,30 @@ window.__ModuleLoader__.load({
       ['context.recentLimit', '保留的近期聊天条数', '限制近期消息缓存；每轮实际带入条数仍受上下文设置约束。'],
     ] },
     { title: '发送消息', fields: [
+      ['send.firstReplyMinMs','收到消息后，首次回复至少等待（秒）','用于私聊；从最后一条来信起算，处理时间也算。填 0 不额外等待，与连续发言间隔独立。','seconds',0],
+      ['send.enforceMinimumGap','不同发送调用也遵守最短间隔','文字、表情等连续发送均受约束。','bool',true],
       ['send.burstMaxMessages', '一轮回复最多拆成几条', '限制一次回复拆分出的消息数。'],
-      ['send.burstIntervalMinMs', '两条消息最短间隔（秒）', '多条消息自动发送时，在最短与最长间隔之间随机选择。', 'seconds'],
+      ['send.burstIntervalMinMs', '机器人连续发言最短间隔（秒）', '多条消息自动发送时，在最短与最长间隔之间随机选择。', 'seconds'],
       ['send.burstIntervalMaxMs', '两条消息最长间隔（秒）', '自动间隔的上限；工具指定间隔或较长停顿策略可单独调整。', 'seconds'],
       ['send.maxSendPerMinute', '每分钟最多发送几条', '达到上限后会限流。'],
       ['send.maxSendPerHour', '每小时最多发送几条', '达到上限后会限流。'],
       ['send.maxMessageChars', '单条消息最多字数', '超过上限的工具发送会被拒绝，模型需要缩短或拆分。'],
+    ] },
+    { title: '上下文与执行预算', fields: [
+      ['compaction.enabled','自动整理上下文','在安全边界压缩历史，保留角色和记忆。','bool',true],
+      ['compaction.thresholdTokens','整理软阈值（输入 Token）','达到后在闲置边界整理。','number',40000],
+      ['compaction.hardThresholdTokens','下一轮输入硬上限','超过后先整理再继续；整理失败保留消息并显示原因。','number',80000],
+      ['compaction.idleMs','闲置多久后整理（分钟）','不打断正在执行的工具。','minutes',300000],
+      ['economy.enabled','限制单轮执行预算','限制模型往返和重复失败，避免失控循环。','bool',true],
+      ['economy.chatMaxRequests','普通聊天每轮最多请求','不是 QQ 消息条数；包含工具后续决策。','number',8],
+      ['economy.chatMaxInputTokens','普通聊天每轮输入预算','按已完成请求累计，允许正在执行的一次完成。','number',400000],
+      ['economy.ownerTaskMode','主人私聊使用任务预算','复杂工作时开启，普通聊天建议关闭；不改变工具权限。','bool',false],
+      ['economy.taskMaxRequests','任务每轮最多请求','用于后台 B 站父协调与主人任务模式。','number',40],
+      ['economy.taskMaxInputTokens','任务每轮输入预算','独立于主动聊天次数和 B 站每日次数。','number',1500000],
+      ['economy.biliMaxRequests','B站子任务每轮最多请求','独立于每日次数和时长限制。','number',40],
+      ['economy.biliMaxInputTokens','B站子任务每轮输入预算','保留主人手动刷站的每日次数和时长豁免。','number',1500000],
+      ['economy.maxRepeatedFailures','同一工具失败上限','达到后停止本轮，避免反复重试。','number',2],
+      ['economy.maxModelFailures','连续模型失败上限','包括服务异常，限制单步重试。','number',2],
     ] },
     { title: 'QQ 空间', fields: [
       ['qzone.enabled', '允许发布说说', '开启只代表允许发布，不会自动创建定时任务。', 'bool'],
@@ -1048,6 +1066,17 @@ window.__ModuleLoader__.load({
       head.appendChild(h('h4', null, title)); box.appendChild(head)
       children.forEach(function (child) { box.appendChild(child) })
       return box
+    }
+    if (d.optimization && Array.isArray(d.optimization.conversations)) {
+      var statusRows = d.optimization.conversations.map(function (row) {
+        var text = row.key + ' · 上次输入 ' + Number(row.contextTokens || 0).toLocaleString() + ' Token'
+        if (row.compacting) text += ' · 正在整理'
+        else if (row.measuredAfterCompaction === false) text += ' · 已整理，等待下一次请求测量'
+        if (row.contextBlocked) text += ' · ' + row.contextBlocked
+        if (row.lastBudgetLimit) text += ' · 最近停止原因：' + row.lastBudgetLimit.reason
+        return h('p', 'dsh-bili-sub', text)
+      })
+      if (statusRows.length) nodes.push(rhythmCard('执行状态', statusRows))
     }
     var model = d.model
     if (model && Array.isArray(model.options)) {

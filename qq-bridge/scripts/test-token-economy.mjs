@@ -194,7 +194,7 @@ await test('another conversation token, pause, mode and allowlist guards still r
   assert.deepEqual(seqs(st.unread), [1]);
 });
 
-await test('legacy mark-read still clears all unread and legacy wake-config preserves unread', async ({ st, request, append }) => {
+await test('omitted agent cursor never clears unseen messages; operator clear remains available', async ({ st, request, append }) => {
   append('legacy message');
   const config = await request('wake-config', { body: { config: ACTIVE } });
   assert.equal(config.status, 200);
@@ -202,8 +202,33 @@ await test('legacy mark-read still clears all unread and legacy wake-config pres
   append('legacy second message');
   const marked = await request('mark-read', { body: {} });
   assert.equal(marked.status, 200);
-  assert.equal(marked.data.markedCount, 2);
+  assert.equal(marked.data.markedCount, 0);
+  assert.deepEqual(seqs(st.unread), [1, 2]);
+  assert.equal(marked.data.backgroundFollowUp, true);
+  const operator = await request('mark-read', {body:{},admin:true});
+  assert.equal(operator.data.markedCount, 2);
   assert.deepEqual(seqs(st.unread), []);
+});
+
+await test('safe receipt can close while a new unseen message arrives, without observation error', async ({st,request,append}) => {
+  append('first');
+  const read=await request('unread');
+  append('later');
+  const result=await request('mark-read',{body:{throughSeq:read.data.readThroughSeq}});
+  assert.equal(result.status,200);
+  assert.equal(result.data.closed,true);
+  assert.deepEqual(seqs(st.unread),[2]);
+  assert.equal(result.data.backgroundFollowUp,true);
+}, {observe:true});
+
+await test('send closes its captured watermark only after confirmed success', async ({st,request,append}) => {
+  append('first');
+  await request('unread');
+  append('later');
+  const result=await request('send-message',{body:{messages:'hello'}});
+  assert.equal(result.status,200);
+  assert.equal(result.data.closed,true);
+  assert.deepEqual(seqs(st.unread),[2]);
 });
 
 await test('an invalid wake configuration cannot acknowledge an otherwise valid cursor', async ({ st, request, append }) => {
@@ -345,7 +370,7 @@ await test('oversized first stored unread remains intact and cannot be skipped b
 
 await test('snapshot recent history stays chronological and does not duplicate unread', async ({ h, request, append }) => {
   append('history 1'); append('history 2'); append('history 3');
-  await request('mark-read', { body: {} });
+  await request('mark-read', { body: {}, admin:true });
   append('current unread');
   h.cfg.socialV2.context.wakeRecentLimit = 2;
   const snapshot = h.buildWakeSnapshotV2(KEY);
@@ -357,7 +382,7 @@ await test('snapshot recent history stays chronological and does not duplicate u
 
 await test('snapshot feature and tool flags cannot be bypassed through inline recent history', async ({ h, request, append }) => {
   append('authorized old history');
-  await request('mark-read', { body: {} });
+  await request('mark-read', { body: {}, admin:true });
   append('unread requiring getUnread');
   h.cfg.socialV2.tools.getUnread = false;
   let snapshot = h.buildWakeSnapshotV2(KEY);
@@ -385,13 +410,13 @@ await test('a compact image handle still resolves after unread outlives the rece
   assert.equal(snapshot.messages[0].media[0].index, 1);
   assert.equal(snapshot.messages[0].media[0].file, undefined);
   for (const messageId of ['1', '900719925474099312345']) {
-    const result = await request('/api/images/message', { query: `&messageId=${messageId}` });
+    const result = await request('/api/images/message', { query: `&messageId=${messageId}&force=true` });
     assert.equal(result.status, 200);
     assert.equal(result.data.media[0].file, 'fixture-kept-image');
     assert.equal(result.data.images[0].mimeType, 'image/png');
     assert.ok(result.data.images[0].data.length > 0, 'fixture gateway should return an actual image');
   }
-  assert.deepEqual(h.calls.images, ['fixture-kept-image', 'fixture-kept-image']);
+  assert.deepEqual(h.calls.images, ['fixture-kept-image']);
 });
 
 await test('busy and rate-limited wake attempts preserve the current observation state', async ({ h, st, append }) => {

@@ -5,13 +5,14 @@
 // 这些内容还会随对话历史一起累积，压缩（compaction）之后可能被摘要掉，令牌一丢工具全废。
 //
 // 做法：在**每个 QQ 会话自己的 agent 作用域**里注册一个系统提示词段。
-//   1. 只在 system prompt 里出现，不进对话历史 —— 模型看到的第一句人话就是「hello」；
+//   1. 固定段放在 system prompt（in-history 适配器仍可能记录其变化） —— 模型看到的第一句人话就是「hello」；
 //   2. 每轮重新装配，不会因为压缩而消失；
 //   3. 内容按会话隔离，群聊与私聊各是各的。
 //
 // 注意：`text` 是同步函数（DSH 每步装配时同步求值），所以内容必须来自本地缓存，
 // 不能在里面发请求。缓存由 agent/created 与定时刷新维护。
 
+import { createExecutionBudget } from './execution-budget.mjs';
 const DEFAULT_BRIDGE = 'http://127.0.0.1:3100';
 // 控制台令牌文件：**不要写死绝对路径**（换台机器就再也读不到，而且开源会泄露作者目录）。
 // 优先级：插件 config.tokenFile > 环境变量 QQ_BRIDGE_TOKEN_FILE > 空。
@@ -74,8 +75,16 @@ export function apply(ctx, config) {
 
   async function refresh(agent) {
     const sid = String(agent.id);
-    const data = await fetchContext(sid);
-    if (data) cache.set(sid, { text: data.text, key: data.key, at: Date.now() });
+    let data = await fetchContext(sid);
+    if (!data && agent.session?.header?.agentPreset === 'qq-bili-worker') {
+      try {
+        const token=await consoleToken();
+        const res=await fetch(`${bridgeUrl}/api/socialV2/config`,{headers:{'x-console-token':token},signal:AbortSignal.timeout(FETCH_TIMEOUT_MS)});
+        const c=await res.json();
+        if(res.ok&&c.ok)data={text:'',key:'internal:bili',ownerTaskMode:true,economy:{...c.config?.economy,taskMaxRequests:c.config?.economy?.biliMaxRequests??40,taskMaxInputTokens:c.config?.economy?.biliMaxInputTokens??1500000}};
+      } catch {}
+    }
+    if (data) cache.set(sid, { ...data, at: Date.now() });
     return data;
   }
 
@@ -84,6 +93,30 @@ export function apply(ctx, config) {
     if (fibers.has(sid)) return fibers.get(sid);
     // 注册在 agent 自己的作用域里：只对这个会话的系统提示词生效。
     const fiber = agent.ctx.inject(['systemPrompt'], (scope) => {
+      let budgetReport=Promise.resolve();
+      const budget = createExecutionBudget({onLimit: (event) => {
+        console.error('[qq-budget]', JSON.stringify({sessionId:sid,...event}));
+        budgetReport=consoleToken().then(token => fetch(`${bridgeUrl}/api/socialV2/budget-event`, {
+          method:'POST',headers:{'content-type':'application/json','x-console-token':token},
+          body:JSON.stringify({sessionId:sid,...event}),signal:AbortSignal.timeout(FETCH_TIMEOUT_MS)
+        })).catch(()=>{});
+      }});
+      let taskTurn;
+      scope.on('session/event', (session,event) => { if(String(session.id)===sid)budget.event(event); });
+      scope.on('agent/pre-step', async ({agent:subject,turn,messages}, next) => {
+        if(String(subject.id)!==sid)return next();
+        const data=cache.get(sid)||{};
+        if(taskTurn!==turn) {
+          const automatic=(messages||[]).some(m=>(m.content||[]).some(p=>p.type==='text'&&String(p.text).startsWith('【后台 B 站浏览】')));
+          taskTurn=automatic||data.ownerTaskMode?turn:undefined;
+        }
+        if(!budget.beforeStep(turn,data.economy,taskTurn===turn)){await budgetReport;return {kind:'reject'};}
+        return next();
+      }, {prepend:true});
+      scope.on('agent/request-error', async (_request,next) => {
+        if(!budget.allowRetry(cache.get(sid)?.economy)){await budgetReport;return undefined;}
+        return next();
+      }, {prepend:true});
       scope.systemPrompt.section({
         name: 'qq:session-context',
         // persona 之后（0）、工具说明之前（1000）：模型先建立"我是谁"，再读工具。
@@ -119,7 +152,7 @@ export function apply(ctx, config) {
     void refresh(agent).then((data) => { if (data) install(agent); });
   }
 
-  // 定时刷新：令牌轮换、表情库变化、长期记忆每天整理，都靠它带进下一轮。
+  // 定时刷新显式角色/令牌和执行预算。记忆快照在会话内固定，表情按需查询，避免 in-history 膨胀。
   const timer = setInterval(() => {
     for (const agent of ctx.agents.list()) {
       // A bridge outage during plugin startup must not permanently skip an

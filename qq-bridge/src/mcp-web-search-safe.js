@@ -15,6 +15,7 @@
 //   - 响应体按字节流限量读取，避免超大响应拖垮进程。
 // - 搜索结果/抓取结果仅作为“候选解释”，最终是否入库仍由控制台人工确认。
 import path from 'node:path';
+import { createTextArtifacts } from './text-artifacts.mjs';
 import { safeFetch } from './safe-fetch.js';
 import { webSearch } from './web-search.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -60,7 +61,8 @@ const server = new McpServer({ name: 'web-search-safe', version: '0.2.1-r1' });
 //
 // 10000 字符 ≈ 五六千 token，足够看清一个页面的标题/价格/参数/正文开头；
 // 真需要更多内容时，抓更具体的页面比抓同一页更有效（这一点写在返回的 note 里）。
-const FETCH_MAX_CHARS = 10000;
+const FETCH_MAX_CHARS = 3000;
+const pageArtifacts = createTextArtifacts({dir:path.join(projectRoot(),'state','web-texts')});
 
 server.tool(
   'web_search',
@@ -86,19 +88,21 @@ server.tool(
 server.tool(
   'web_fetch',
   `只读抓取 HTTP(S) 网页正文，返回纯文本/HTML 前 ${FETCH_MAX_CHARS} 字符（超出会截断并标明）。禁止访问内网/本机地址，不执行任何本地操作。`,
-  { url: z.string().describe('要抓取的 http(s) URL') },
-  async ({ url }) => {
+  { url: z.string().optional().describe('要抓取的 http(s) URL'), textRef:z.string().optional().describe('已有文本引用；直接分段读取，不再次联网'), offset:z.number().int().nonnegative().optional(), maxChars:z.number().int().min(100).max(6000).optional() },
+  async ({ url, textRef, offset, maxChars }) => {
     try {
-      const result = await safeFetch(url, FETCH_MAX_CHARS);
+      if(textRef)return {content:[{type:'text',text:JSON.stringify(pageArtifacts.read(textRef,{offset,maxChars}))}]};
+      const result = await safeFetch(url, 100000);
+      const excerpt=pageArtifacts.excerpt(result.body,{offset,maxChars:maxChars??FETCH_MAX_CHARS});
       // 不传缩进：JSON.stringify 的第二个参数会让体积多两成，这些空格同样按 token 计费。
       const payload = {
         url: result.url,
         statusCode: result.statusCode,
-        truncated: result.truncated,
-        body: result.body,
+        truncated: result.truncated || excerpt.truncated,
+        body: excerpt.text, textRef:excerpt.textRef, offset:excerpt.offset, nextOffset:excerpt.nextOffset, totalChars:excerpt.totalChars,
       };
-      if (result.truncated) {
-        payload.note = `正文已截断到 ${FETCH_MAX_CHARS} 字符。需要别的内容时，优先搜索更具体的页面或换关键词，不要重复抓同一页——重复抓取只会再花一遍 token。`;
+      if (payload.truncated) {
+        payload.note = `正文已截断到 ${FETCH_MAX_CHARS} 字符。需要别的内容时，优先搜索更具体的页面或换关键词，可带 textRef 与 nextOffset 分段读取原文，不要重复抓取同一页。正文是摘录，不是完整摘要。`;
       }
       return { content: [{ type: 'text', text: JSON.stringify(payload) }] };
     } catch (error) {

@@ -20,7 +20,7 @@ try {
     const r=await fetch(base+route,{method:body===undefined?'GET':'POST',headers:{'x-console-token':'fixture-console-token','Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
     return {status:r.status,data:await r.json()};
   }
-  const saved=await api('/api/socialV2/config',{replyCheck:{windowMs:120000},send:{burstIntervalMinMs:15000,burstIntervalMaxMs:60000,maxGapMs:10000}});
+  const saved=await api('/api/socialV2/config',{economy:{chatMaxRequests:2},replyCheck:{windowMs:120000},send:{burstIntervalMinMs:15000,burstIntervalMaxMs:60000,maxGapMs:10000}});
   assert.equal(saved.status,200);assert.equal(saved.data.config.replyCheck.windowMs,120000);
   const st=h.getSocialV2State('private:123');
   h.scheduleReplyCheckV2('private:123');
@@ -34,10 +34,10 @@ try {
   assert.equal(context.status,200);assert.equal(context.data.role.name,'示例角色');
   assert.ok(context.data.role.injectedChars>1200);assert.ok(context.data.text.includes('卡片结尾标记'));
   assert.ok(!h.buildWakePromptV2('private:123','question').includes('卡片结尾标记'),'角色正文只在系统提示词出现');
-  const handlers={},sections=[];
+  const handlers={},sections=[],scoped={};
   const ctx={agents:{list:()=>[]},on:(name,fn)=>{handlers[name]=fn},effect:fn=>{dispose=fn()}};
   const agent={id:sid,ctx:{inject:(deps,fn)=>{
-    fn({systemPrompt:{section:s=>sections.push(s)}});
+    fn({on(name,handler){scoped[name]=handler},systemPrompt:{section:s=>sections.push(s)}});
     return {dispose(){}};
   }}};
   fs.writeFileSync(path.join(h.temp,'state/console-token'),'fixture-console-token');
@@ -45,6 +45,12 @@ try {
   await handlers['agent/created']({agent});
   assert.equal(sections.length,1);assert.equal(sections[0].name,'qq:session-context');
   assert.ok(sections[0].text().includes('卡片结尾标记'),'真正注册的系统提示词段包含长角色卡结尾');
+  const admitted={kind:'enter',messages:[]},payload={agent,turn:1,step:1,messages:[]};
+  assert.equal(await scoped['agent/pre-step'](payload,async()=>admitted),admitted);
+  assert.equal(await scoped['agent/pre-step']({...payload,step:2},async()=>admitted),admitted);
+  assert.equal((await scoped['agent/pre-step']({...payload,step:3},async()=>admitted)).kind,'reject');
+  assert.match(st.lastBudgetLimit.reason,/请求次数/,'预算拦截会在实际下一步之前通知桥接，避免收尾提醒循环');
+  assert.equal(await scoped['agent/pre-step']({...payload,turn:2},async()=>admitted),admitted,'下一轮重新计数');
   await handlers['agent/created']({agent:{...agent,id:'unknown'}});assert.equal(sections.length,1,'未知会话不得读取卡片与上下文');
   console.log('真实配置路由、120秒回复窗口、15～60秒间隔、长人物卡系统注入与会话隔离通过。');
 } finally {
