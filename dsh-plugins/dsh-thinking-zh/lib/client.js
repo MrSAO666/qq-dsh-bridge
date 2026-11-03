@@ -217,7 +217,7 @@ window.__ModuleLoader__.load({
       /* ── 大设置窗口 ── */
       '.dsh-fb-modal{position:fixed;inset:0;z-index:2147482100;display:grid;place-items:center;',
       'background:rgba(0,0,0,.42);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);animation:dsh-fb-fade .14s ease}',
-      '.dsh-fb-dialog{width:min(940px,94vw);height:min(700px,88vh);display:flex;flex-direction:column;overflow:hidden;',
+      '.dsh-fb-dialog{position:relative;width:min(940px,94vw);height:min(700px,88vh);display:flex;flex-direction:column;overflow:hidden;',
       'border-radius:16px;background:var(--dsw-alias-bg-layer-1,#17171a);',
       'border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.26));box-shadow:0 28px 80px rgba(0,0,0,.5);',
       'color:var(--dsw-alias-label-primary,#ececec);font-family:var(--dsw-font-family,inherit);font-size:13px;',
@@ -239,6 +239,47 @@ window.__ModuleLoader__.load({
       '.dsh-fb-tab[data-active="1"]{color:var(--dsw-alias-brand-primary,#4d6bfe);font-weight:600;',
       'background:color-mix(in srgb,var(--dsw-alias-brand-primary,#4d6bfe) 11%,transparent)}',
       '.dsh-fb-dlg-body{flex:1;overflow:auto;padding:16px}',
+      '.dsh-bili{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:14px}',
+      '.dsh-bili-hero{position:relative;overflow:hidden;padding:20px 22px;border-radius:16px;',
+      'background:linear-gradient(115deg,rgba(244,114,160,.16),rgba(99,135,238,.11));border:1px solid rgba(235,131,168,.24)}',
+      '.dsh-bili-eyebrow{font-size:10px;letter-spacing:.14em;color:#e88ba9;font-weight:700}',
+      '.dsh-bili-hero h3{font-size:20px;margin:7px 0 5px;line-height:1.25;color:var(--dsw-alias-label-primary,#ececec)}',
+      '.dsh-bili-hero p,.dsh-bili-sub{margin:0;color:var(--dsw-alias-label-secondary,#aaaab3);font-size:12px;line-height:1.6}',
+      '.dsh-bili-badge{display:inline-flex;align-items:center;gap:6px;margin-top:12px;padding:5px 9px;border-radius:999px;',
+      'background:rgba(226,161,67,.13);color:#e2ae63;font-size:11px;font-weight:600}',
+      '.dsh-bili-badge.ready{background:rgba(64,170,116,.14);color:#79cd9b}',
+      '.dsh-bili-card{padding:17px 18px;border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.18));',
+      'border-radius:14px;background:var(--dsw-alias-bg-layer-2,#202024)}',
+      '.dsh-bili-head{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:14px}',
+      '.dsh-bili-head h4{margin:0 0 3px;font-size:14px;font-weight:650;color:var(--dsw-alias-label-primary,#ececec)}',
+      '.dsh-bili-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}',
+      '.dsh-bili-field{display:flex;flex-direction:column;gap:6px;min-width:0}',
+      '.dsh-bili-field label{font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary,#ececec)}',
+      '.dsh-bili-field small{color:var(--dsw-alias-label-tertiary,#92929b);font-size:11px;line-height:1.45}',
+      '.dsh-bili-field .dsh-fb-input{width:100%;box-sizing:border-box;min-width:0}',
+      '.dsh-rhythm .wide{grid-column:1/-1}.dsh-rhythm .dsh-bili-card>.dsh-fb-input{width:100%;box-sizing:border-box}',
+      '.dsh-fb-input:disabled{opacity:.55;cursor:not-allowed}',
+      '.dsh-fb-toast.in-dialog{position:absolute;z-index:2;left:auto;right:16px;top:54px;transform:none;white-space:normal;max-width:calc(100% - 58px);box-shadow:0 6px 24px rgba(0,0,0,.3)}',
+      '.dsh-token-log{max-height:440px;overflow:auto;border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.18));border-radius:10px}',
+      '.dsh-token-row{padding:12px 14px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.14));overflow-wrap:anywhere}',
+      '.dsh-token-row:last-child{border-bottom:0}.dsh-token-rowhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:5px}.dsh-token-rowhead strong{font-size:12px}',
+      '.dsh-bili-toggle{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 13px;',
+      'border-radius:10px;background:var(--dsw-alias-bg-layer-1,rgba(0,0,0,.12));cursor:pointer}',
+      '.dsh-bili-toggle span{display:block;min-width:0}.dsh-bili-toggle strong{display:block;font-size:12px;font-weight:600}',
+      '.dsh-bili-toggle small{display:block;font-size:11px;line-height:1.45;margin-top:3px;color:var(--dsw-alias-label-tertiary,#92929b)}',
+      '.dsh-bili-toggle input{appearance:none;flex:none;width:36px;height:21px;border-radius:20px;cursor:pointer;',
+      'background:rgba(127,127,127,.35);position:relative;transition:background .16s;margin:0}',
+      '.dsh-bili-toggle input:before{content:"";position:absolute;left:3px;top:3px;width:15px;height:15px;border-radius:50%;background:#fff;transition:transform .16s}',
+      '.dsh-bili-toggle input:checked{background:#d76d96}.dsh-bili-toggle input:checked:before{transform:translateX(15px)}',
+      '.dsh-bili-toggle input:focus-visible{outline:2px solid #ed90b2;outline-offset:3px}',
+      '.dsh-bili-log{max-height:230px;overflow:auto;border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.14));border-radius:10px}',
+      '.dsh-bili-logrow{display:grid;grid-template-columns:145px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;',
+      'font-size:12px;border-bottom:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.12))}',
+      '.dsh-bili-logrow:last-child{border-bottom:0}.dsh-bili-logtime{color:var(--dsw-alias-label-tertiary,#92929b);font-size:11px}',
+      '.dsh-bili-logstate{font-size:11px;color:#80cfa5}.dsh-bili-logstate.bad{color:#e68b8b}',
+      '.dsh-bili-logempty{padding:19px 14px;text-align:center;color:var(--dsw-alias-label-tertiary,#92929b);font-size:12px;line-height:1.6}',
+      '.dsh-bili-qr img{display:block;margin:12px 0;border-radius:10px;background:white;padding:7px;max-width:200px;width:100%;box-sizing:border-box}',
+      '@media(max-width:600px){.dsh-bili-grid{grid-template-columns:1fr}.dsh-bili-hero{padding:17px}.dsh-bili-card{padding:15px}.dsh-bili-logrow{grid-template-columns:1fr auto}.dsh-bili-logtime{grid-column:1/-1}}',
       '.dsh-fb-sec{margin-bottom:18px}',
       '.dsh-fb-sec h4{margin:0 0 9px;font-size:11.5px;font-weight:600;letter-spacing:.04em;',
       'color:var(--dsw-alias-label-tertiary,#8d8d94)}',
@@ -547,6 +588,7 @@ window.__ModuleLoader__.load({
   var TABS = [
     { id: 'status', label: '状态' },
     { id: 'rhythm', label: '回复节奏' },
+    { id: 'bili', label: 'B站' },
     { id: 'persona', label: '人格' },
     { id: 'tokens', label: 'Token 花费' },
     { id: 'stickers', label: '表情' },
@@ -570,20 +612,21 @@ window.__ModuleLoader__.load({
       ['proactive.probability', '每次检查的基础触发概率（%）', '例如 30 表示 30%；实际概率可能调整。', 'percent', 0.3],
     ] },
     { title: '收到消息后', fields: [
-      ['autoReplyCheckMs', '检查新消息的间隔（秒）', '越短检查越频繁。', 'seconds'],
-      ['wake.batchWindowMs', '合并连续消息的时间（秒）', '这段时间内的多条消息合并处理。', 'seconds'],
+      ['autoReplyCheckMs', '旧版消息轮询间隔（秒）', '当前使用消息事件驱动，此旧选项已停用，仅保留历史值。', 'seconds'],
+      ['replyCheck.windowMs', '回复后继续留意的时长（秒）', '仅私聊：窗口内收到回应时唤醒，没人回应不会空转。范围 5～300 秒。', 'seconds', 90000],
+      ['wake.batchWindowMs', '合并连续消息的时间（秒）', '会话使用默认唤醒配置时应用；私聊如有单独配置，以私聊值为准。', 'seconds'],
       ['wait.defaultMs', '等待新消息的默认时长（秒）', '模型使用等待消息工具时的默认值。', 'seconds'],
       ['wait.defaultQuietMs', '判断对方说完的安静时间（秒）', '连续安静这么久后认为对方暂时说完。', 'seconds'],
-      ['wake.maxWakePerHour', '每小时最多唤醒次数', '限制反复唤醒模型的次数。'],
-      ['context.recentLimit', '带入的近期聊天条数', '越多上下文越完整，消耗也可能越高。'],
+      ['wake.maxWakePerHour', '每小时最多唤醒次数', '限制反复唤醒；私聊如有独立上限，以私聊值为准。'],
+      ['context.recentLimit', '保留的近期聊天条数', '限制近期消息缓存；每轮实际带入条数仍受上下文设置约束。'],
     ] },
     { title: '发送消息', fields: [
       ['send.burstMaxMessages', '一轮回复最多拆成几条', '限制一次回复拆分出的消息数。'],
-      ['send.burstIntervalMinMs', '两条消息最短间隔（秒）', '在最短与最长间隔之间随机选择。', 'seconds'],
-      ['send.burstIntervalMaxMs', '两条消息最长间隔（秒）', '在最短与最长间隔之间随机选择。', 'seconds'],
+      ['send.burstIntervalMinMs', '两条消息最短间隔（秒）', '多条消息自动发送时，在最短与最长间隔之间随机选择。', 'seconds'],
+      ['send.burstIntervalMaxMs', '两条消息最长间隔（秒）', '自动间隔的上限；工具指定间隔或较长停顿策略可单独调整。', 'seconds'],
       ['send.maxSendPerMinute', '每分钟最多发送几条', '达到上限后会限流。'],
       ['send.maxSendPerHour', '每小时最多发送几条', '达到上限后会限流。'],
-      ['send.maxMessageChars', '单条消息最多字数', '超出后按句子拆分。'],
+      ['send.maxMessageChars', '单条消息最多字数', '超过上限的工具发送会被拒绝，模型需要缩短或拆分。'],
     ] },
     { title: 'QQ 空间', fields: [
       ['qzone.enabled', '允许发布说说', '开启只代表允许发布，不会自动创建定时任务。', 'bool'],
@@ -593,6 +636,7 @@ window.__ModuleLoader__.load({
 
   var modal = null
   var mState = { feature: null, tab: 'status', data: {}, note: '' }
+  var tokenQuery = { window: 'today', view: 'turns', category: 'all', offset: 0 }
 
   function fetchJson(url, options) {
     return fetch(url, options || { cache: 'no-store' })
@@ -735,8 +779,9 @@ window.__ModuleLoader__.load({
     var f = mState.feature
     var url = f.api
     if (tabId === 'rhythm') url = f.api + '/settings'
+    else if (tabId === 'bili') url = f.api + '/bili'
     else if (tabId === 'persona') url = f.api + '/persona'
-    else if (tabId === 'tokens') url = f.api + '/tokens'
+    else if (tabId === 'tokens') url = f.api + '/tokens?' + Object.keys(tokenQuery).map(function (key) { return encodeURIComponent(key) + '=' + encodeURIComponent(tokenQuery[key]) }).join('&')
     else if (tabId === 'stickers') url = f.api + '/stickers'
     else if (tabId === 'access') url = f.api + '/access'
     else if (tabId === 'backend') url = f.api + '/backend'
@@ -765,12 +810,133 @@ window.__ModuleLoader__.load({
     }
     if (mState.tab === 'status') return renderStatusTab(d)
     if (mState.tab === 'rhythm') return renderRhythmTab(d)
+    if (mState.tab === 'bili') return renderBiliTab(d)
     if (mState.tab === 'persona') return renderPersonaTab(d)
     if (mState.tab === 'tokens') return renderTokensTab(d)
     if (mState.tab === 'stickers') return renderStickersTab(d)
     if (mState.tab === 'access') return renderAccessTab(d)
     if (mState.tab === 'backend') return renderBackendTab(d)
     if (mState.tab === 'diagnose') return renderDiagnoseTab(d)
+  }
+
+  function renderBiliTab(d) {
+    var cfg = JSON.parse(JSON.stringify(d.config || {}))
+    var root = h('div', 'dsh-bili')
+    var hero = h('div', 'dsh-bili-hero')
+    hero.appendChild(h('div', 'dsh-bili-eyebrow', 'BILIBILI · 探索设置'))
+    hero.appendChild(h('h3', null, '让大肥鱼去 B 站看看'))
+    hero.appendChild(h('p', null, '设置感兴趣的内容、浏览节奏和互动范围。'))
+    hero.appendChild(h('div', 'dsh-bili-badge' + (d.implementationReady ? ' ready' : ''), d.implementationReady ? '● 刷站任务已接入' : '● 刷站任务尚未接入 · 自动刷站暂不会运行'))
+    if (d.automation) {
+      var today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+      var runStatus = { reserved: '正在派发子任务', running: '子 Agent 正在浏览', stopping: '到时停止中' }[d.automation.active] || '等待下一次安排'
+      hero.appendChild(h('p', 'dsh-bili-sub', runStatus + ' · 今天已安排 ' + ((d.automation.counts || {})[today] || 0) + ' / ' + cfg.dailyRuns + ' 次'))
+    }
+    root.appendChild(hero)
+
+    function card(title, description) {
+      var box = h('section', 'dsh-bili-card'), head = h('div', 'dsh-bili-head'), titleBox = h('div')
+      titleBox.appendChild(h('h4', null, title)); titleBox.appendChild(h('p', 'dsh-bili-sub', description)); head.appendChild(titleBox); box.appendChild(head)
+      return box
+    }
+    function fields(box, specs) {
+      var grid = h('div', 'dsh-bili-grid')
+      specs.forEach(function (f) {
+        var value = getPath(cfg, f[0]), input = h('input', f[2] === 'bool' ? '' : 'dsh-fb-input')
+        input.dataset.biliKey = f[0]; input.dataset.biliType = f[2]
+        if (f[2] === 'bool') {
+          input.type = 'checkbox'; input.checked = value === true
+          var toggle = h('label', 'dsh-bili-toggle'), info = h('span')
+          info.appendChild(h('strong', null, f[1])); info.appendChild(h('small', null, f[3])); toggle.appendChild(info); toggle.appendChild(input); grid.appendChild(toggle)
+        } else {
+          input.type = f[2] === 'number' ? 'number' : 'text'
+          input.value = Array.isArray(value) ? value.join(', ') : String(value == null ? '' : value)
+          if (f[2] === 'number') { input.min = f[0] === 'durationMinutes' ? '1' : '0'; input.max = f[0] === 'durationMinutes' ? '1440' : '100'; input.step = '1' }
+          var field = h('div', 'dsh-bili-field'), label = h('label', null, f[1])
+          var inputId = 'bili-' + f[0].replace(/\./g, '-')
+          input.id = inputId; label.htmlFor = inputId
+          field.appendChild(label); field.appendChild(input); field.appendChild(h('small', null, f[3])); grid.appendChild(field)
+        }
+      })
+      box.appendChild(grid); root.appendChild(box)
+    }
+    fields(card('浏览安排', '设置自主浏览的开关和上限。主人主动发起的任务不占自动额度。'), [
+      ['enabled', '启用 B站功能', 'bool', '允许使用 B 站功能。'], ['autoEnabled', '允许自主刷站', 'bool', '无需等待你的消息，自主安排浏览。'],
+      ['dailyRuns', '每天最多刷几次', 'number', '按北京时间自然日计算。'], ['durationMinutes', '每次最长分钟数', 'number', '从子 Agent 实际开始执行时计时。'],
+    ])
+    fields(card('发现内容', '选择想关注的方向；没有字幕的视频会跳过。'), [
+      ['sources.keywords', '搜索关键词', 'list', '多个关键词用逗号分隔。'], ['sources.followUids', 'UP 主 UID', 'list', '多个 UID 用逗号分隔。'],
+      ['sources.recommendations', '使用推荐流', 'bool', '把推荐视频加入候选内容。'],
+    ])
+    fields(card('互动范围', '选择允许的互动方式，并设置每天的上限。'), [
+      ['interactions.likeEnabled', '允许点赞', 'bool', '自主判断是否为视频点赞。'], ['interactions.commentEnabled', '允许评论', 'bool', '自主判断是否参与评论。'],
+      ['interactions.likeDailyLimit', '每天最多点赞数', 'number', '填 0 表示不点赞。'], ['interactions.commentDailyLimit', '每天最多评论数', 'number', '填 0 表示不评论。'],
+      ['interactions.mentionEnabled', '允许 @', 'bool', '暂未接入，当前不会 @ 任何人。'], ['interactions.mentionUids', '允许 @ 的 UID', 'list', '多个 UID 用逗号分隔；名单为空时不能开启。'],
+    ])
+    root.appendChild(actionsRow([{ label: '保存 B站设置', onClick: function () {
+      var inputs = modal.body.querySelectorAll('input[data-bili-key]')
+      for (var i = 0; i < inputs.length; i++) {
+        var x = inputs[i], parts = x.dataset.biliKey.split('.'), obj = cfg
+        for (var j = 0; j < parts.length - 1; j++) obj = obj[parts[j]]
+        if (x.dataset.biliType === 'number' && (!x.value || !x.validity.valid)) { toast('请检查次数和时长'); x.focus(); return }
+        obj[parts[parts.length - 1]] = x.dataset.biliType === 'bool' ? x.checked : x.dataset.biliType === 'list' ? x.value.split(/[,，\n]/).map(function (v) { return v.trim() }).filter(Boolean) : Number(x.value)
+      }
+      postJson(mState.feature.api + '/bili', { action: 'save', config: cfg }).then(function (r) { toast(r && r.ok ? 'B站设置已保存' : ((r && r.error) || '保存失败')) })
+    }}]))
+    var login = card('B站账号', '使用独立账号扫码登录，登录信息保存在服务器。')
+    var loginStatus = h('div', 'dsh-bili-sub', '正在检查登录状态…')
+    loginStatus.setAttribute('aria-live', 'polite')
+    login.appendChild(loginStatus)
+    function refreshLoginStatus() {
+      loginStatus.textContent = '正在检查登录状态…'
+      postJson(mState.feature.api + '/bili', { action: 'status' }).then(function (r) {
+        if (!modal || mState.tab !== 'bili') return
+        if (!r || !r.ok || !r.result) { loginStatus.textContent = '登录状态暂时不可用，请稍后重试。'; return }
+        var result = r.result
+        loginStatus.textContent = result.logged_in === true ? '● 已登录' + (result.username ? ' · ' + result.username : '') : '● 未登录或登录状态无法验证，请重新扫码或稍后重试。'
+      })
+    }
+    var qr = h('div', 'dsh-bili-qr dsh-bili-sub', '需要登录时，点击下方按钮获取二维码。')
+    login.appendChild(qr)
+    login.appendChild(actionsRow([{ label: '获取登录二维码', onClick: function () {
+      postJson(mState.feature.api + '/bili', { action: 'start' }).then(function (r) {
+        if (!r || !r.ok) { toast((r && r.error) || '获取二维码失败'); return }
+        var data = r.result || {}; qr.textContent = data.message || data.status || ''
+        if (typeof data.qrcode_image === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(data.qrcode_image)) { var img = document.createElement('img'); img.src = data.qrcode_image; img.alt = 'B站登录二维码'; qr.appendChild(img) }
+      })
+    } }, { label: '确认扫码结果', ghost: true, onClick: function () {
+      postJson(mState.feature.api + '/bili', { action: 'check' }).then(function (r) { qr.textContent = r && r.ok ? ((r.result && (r.result.message || r.result.status)) || '已检查') : ((r && r.error) || '检查失败'); if (r && r.ok && r.result && (r.result.status === 'done' || r.result.status === 'already_logged_in')) refreshLoginStatus() })
+    } }, { label: '刷新登录状态', ghost: true, onClick: refreshLoginStatus }]))
+    root.appendChild(login)
+
+    var logs = card('刷视频日志', '显示视频读取、点赞、评论和回复的记录。')
+    var logBox = h('div', 'dsh-bili-log'); logBox.setAttribute('aria-live', 'polite'); logs.appendChild(logBox)
+    function refreshLogs() {
+      logBox.textContent = ''; logBox.appendChild(h('div', 'dsh-bili-logempty', '正在加载日志…'))
+      fetchJson(mState.feature.api + '/bili?view=logs').then(function (r) {
+        if (!modal || mState.tab !== 'bili') return
+        logBox.textContent = ''
+        if (!r || !r.ok) { logBox.appendChild(h('div', 'dsh-bili-logempty', (r && r.error) || '日志暂时不可用')); return }
+        if (!Array.isArray(r.entries) || !r.entries.length) { logBox.appendChild(h('div', 'dsh-bili-logempty', '暂无刷视频记录。')); return }
+        r.entries.forEach(function (entry) {
+          var row = h('div', 'dsh-bili-logrow'), stamp = new Date(entry.time)
+          row.appendChild(h('span', 'dsh-bili-logtime', isNaN(stamp.getTime()) ? '—' : stamp.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })))
+          var detail = h('div')
+          detail.appendChild(h('span', null, entry.action || 'B站操作'))
+          if (typeof entry.bvid === 'string' && /^BV[0-9A-Za-z]{10}$/.test(entry.bvid)) {
+            var link = h('a', null, entry.bvid); link.href = 'https://www.bilibili.com/video/' + entry.bvid; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.style.marginLeft = '8px'; link.style.color = '#e88ba9'; detail.appendChild(link)
+          }
+          if (entry.replyTo) detail.appendChild(h('div', 'dsh-bili-sub', '回复对象：' + entry.replyTo))
+          if (entry.content) detail.appendChild(h('div', 'dsh-bili-sub', '内容：' + entry.content))
+          row.appendChild(detail)
+          row.appendChild(h('span', 'dsh-bili-logstate' + (entry.state === '失败' ? ' bad' : ''), entry.state || '—'))
+          logBox.appendChild(row)
+        })
+      })
+    }
+    logs.appendChild(actionsRow([{ label: '刷新日志', ghost: true, onClick: refreshLogs }]))
+    root.appendChild(logs)
+    setBody([root]); refreshLogs(); refreshLoginStatus()
   }
 
   function renderStatusTab(d) {
@@ -870,6 +1036,19 @@ window.__ModuleLoader__.load({
   function renderRhythmTab(d) {
     var r = d.rhythm || {}
     var nodes = []
+    var root = h('div', 'dsh-bili dsh-rhythm')
+    var hero = h('div', 'dsh-bili-hero')
+    hero.appendChild(h('div', 'dsh-bili-eyebrow', 'QQ · 对话设置'))
+    hero.appendChild(h('h3', null, '让聊天按你的节奏来'))
+    hero.appendChild(h('p', null, '调整思考强度、主动聊天、消息等待与发送频率。'))
+    hero.appendChild(h('div', 'dsh-bili-badge ready', '● 节奏设置保存后生效 · 思考强度单独保存'))
+    root.appendChild(hero)
+    function rhythmCard(title, children) {
+      var box = h('section', 'dsh-bili-card'), head = h('div', 'dsh-bili-head')
+      head.appendChild(h('h4', null, title)); box.appendChild(head)
+      children.forEach(function (child) { box.appendChild(child) })
+      return box
+    }
     var model = d.model
     if (model && Array.isArray(model.options)) {
       var select = h('select', 'dsh-fb-input')
@@ -894,17 +1073,22 @@ window.__ModuleLoader__.load({
           if (res && res.ok) loadTab('rhythm')
         })
       })
-      nodes.push(section('思考强度', [select, h('div', 'dsh-fb-warn', '下次 QQ 会话处理时应用。DSH 切换模型设置可能同时改变新建会话的默认模型。'), saveEffort]))
-    } else nodes.push(section('思考强度', [h('div', 'dsh-fb-warn', '暂时无法读取模型设置，请检查桥接与 DSH 的连接。')]))
+      var effortActions = h('div', 'dsh-fb-actions'); effortActions.appendChild(saveEffort)
+      nodes.push(rhythmCard('思考强度', [select, h('p', 'dsh-bili-sub', '下次 QQ 会话处理时应用；模型需要支持相应强度。调整模型也可能改变 DSH 新会话的默认模型。'), effortActions]))
+    } else nodes.push(rhythmCard('思考强度', [h('div', 'dsh-fb-warn', '暂时无法读取模型设置，请检查桥接与 DSH 的连接。')]))
     RHYTHM_GROUPS.forEach(function (group) {
-      var grid = h('div', 'dsh-fb-grid')
+      var grid = h('div', 'dsh-bili-grid')
       group.fields.forEach(function (spec) {
-        var field = h('div', 'dsh-fb-field')
-        field.appendChild(h('label', null, spec[1]))
+        var field = h('div', 'dsh-bili-field')
+        var label = h('label', null, spec[1])
         var v = getPath(r, spec[0])
         if (v === undefined || v === null) v = spec[4]
         var input = h('input', spec[3] === 'bool' ? '' : 'dsh-fb-input')
-        if (spec[3] === 'bool') { input.type = 'checkbox'; input.checked = v === true }
+        if (spec[3] === 'bool') {
+          input.type = 'checkbox'; input.checked = v === true
+          field = h('label', 'dsh-bili-toggle')
+          var info = h('span'); info.appendChild(h('strong', null, spec[1])); info.appendChild(h('small', null, spec[2])); field.appendChild(info)
+        }
         else {
           input.type = spec[3] === 'text' || spec[3] === 'time' ? spec[3] : 'number'
           if (spec[3] === 'minutes') v = v === undefined ? v : v / 60000
@@ -915,12 +1099,25 @@ window.__ModuleLoader__.load({
           if (spec[0] === 'proactive.maxDaily') { input.max = '100'; input.step = '1' }
           if (spec[0] === 'proactive.maxPerWake') { input.min = '1'; input.max = '100'; input.step = '1' }
           if (spec[0] === 'proactive.prompt') input.maxLength = 2000
+          if (spec[0] === 'proactive.prompt') field.className += ' wide'
+          if (spec[0] === 'autoReplyCheckMs') input.disabled = true
+          if (spec[0] === 'replyCheck.windowMs') { input.min = '5'; input.max = '300' }
+          if (spec[0] === 'qzone.maxPerDay') { input.min = '1'; input.max = '20'; input.step = '1' }
           input.value = (v === undefined || v === null) ? '' : String(v)
+          input.id = 'rhythm-' + spec[0].replace(/\./g, '-')
+          label.htmlFor = input.id; field.appendChild(label)
         }
         input.dataset.key = spec[0]; input.dataset.unit = spec[3] || ''
-        field.appendChild(input); field.appendChild(h('small', null, spec[2])); grid.appendChild(field)
+        field.appendChild(input)
+        if (spec[3] !== 'bool') {
+          var hint = spec[2]
+          if (spec[0] === 'wake.batchWindowMs' && r.wake && Number(r.wake.batchWindowMsPrivate) > 0) hint += ' 当前私聊：' + (r.wake.batchWindowMsPrivate / 1000) + ' 秒。'
+          if (spec[0] === 'wake.maxWakePerHour' && r.wake && Number.isFinite(Number(r.wake.maxWakePerHourPrivate))) hint += ' 当前私聊上限：' + r.wake.maxWakePerHourPrivate + ' 次（0 表示不设上限）。'
+          field.appendChild(h('small', null, hint))
+        }
+        grid.appendChild(field)
       })
-      nodes.push(section(group.title, [grid]))
+      nodes.push(rhythmCard(group.title, [grid]))
     })
     nodes.push(actionsRow([
       { label: '保存节奏设置', onClick: function () { saveRhythm(r) } },
@@ -928,7 +1125,8 @@ window.__ModuleLoader__.load({
     ]))
     nodes.push(h('div', 'dsh-fb-warn', '节奏设置保存后生效。发送过于频繁可能触发 QQ 风控。'))
     if (mState.note) nodes.push(h('div', 'dsh-fb-warn', mState.note))
-    setBody(nodes)
+    nodes.forEach(function (node) { root.appendChild(node) })
+    setBody([root])
   }
 
   function saveRhythm(original) {
@@ -939,6 +1137,7 @@ window.__ModuleLoader__.load({
     var inputs = modal.body.querySelectorAll('input[data-key]')
     for (var i = 0; i < inputs.length; i++) {
       var input = inputs[i]
+      if (input.disabled) continue
       var parts = input.dataset.key.split('.')
       var cur = rhythm
       for (var k = 0; k < parts.length - 1; k++) {
@@ -1003,7 +1202,7 @@ window.__ModuleLoader__.load({
 // 用户根本看不出到底切没切。这一行跟着 loadTab 重新渲染，是权威状态。
     var currentLine = h('div', 'dsh-fb-empty')
     currentLine.textContent = d.current
-      ? ('当前角色：' + d.current + '（已生效，下一轮唤醒起按这张卡说话）')
+      ? ('当前角色：' + d.current + '（系统上下文最多约 2 分钟更新，新会话会立即读取）')
       : '当前角色：未启用（选一张卡 → 点「设为当前角色」）'
 
     var meta = h('div', 'dsh-fb-empty')
@@ -1082,14 +1281,33 @@ window.__ModuleLoader__.load({
 
   function renderTokensTab(d) {
     var t = d.totals || {}
-    var b = t.buckets || {}
-    var tier = d.nowTier || {}
     var symbol = d.symbol || '¥'
-    var total = b.cacheMiss || 0
-    var hit = b.cacheHit || 0
-    var out = b.output || 0
-    var money = (t.cost !== undefined) ? t.cost : (t.money !== undefined ? t.money : (t.cny !== undefined ? t.cny : null))
-
+    var root = h('div', 'dsh-bili'), hero = h('div', 'dsh-bili-hero')
+    hero.appendChild(h('div', 'dsh-bili-eyebrow', 'TOKEN · 用量账本'))
+    hero.appendChild(h('h3', null, '每次消耗，都有迹可查'))
+    hero.appendChild(h('p', null, '按北京时间查询对话、模型请求、工具调用和 B 站任务。'))
+    root.appendChild(hero)
+    function box(title) { var el = h('section', 'dsh-bili-card'), head = h('div', 'dsh-bili-head'); head.appendChild(h('h4', null, title)); el.appendChild(head); root.appendChild(el); return el }
+    function number(value) { return Number(value || 0).toLocaleString('zh-CN') }
+    function money(value) { return symbol + Number(value || 0).toFixed(6) }
+    function stamp(value) { return value ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '—' }
+    function dateInput(value) { return value ? new Date(value + 8 * 3600000).toISOString().slice(0, 16) : '' }
+    var filter = box('查询范围'), grid = h('div', 'dsh-bili-grid')
+    function field(text, input, id) { var el = h('div', 'dsh-bili-field'), label = h('label', null, text); input.id = id; label.htmlFor = id; el.appendChild(label); el.appendChild(input); grid.appendChild(el) }
+    var from = h('input', 'dsh-fb-input'), to = h('input', 'dsh-fb-input')
+    from.type = to.type = 'datetime-local'; from.value = tokenQuery.from || dateInput(d.range && d.range.from); to.value = tokenQuery.to || dateInput(d.range && d.range.to)
+    field('开始时间（含）', from, 'token-from'); field('结束时间（不含）', to, 'token-to')
+    function select(options, value) { var el = h('select', 'dsh-fb-input'); options.forEach(function (x) { var o = h('option', null, x[1]); o.value = x[0]; el.appendChild(o) }); el.value = value; return el }
+    var category = select([['all', '全部用途'], ['chat', 'QQ 对话'], ['bili', '刷 B站'], ['internal', '其他子任务 / 内部任务']], tokenQuery.category)
+    var view = select([['turns', '每轮对话'], ['requests', '每次模型请求'], ['tools', '每次工具调用'], ['tasks', '每次 B站任务']], tokenQuery.view)
+    field('用途', category, 'token-category'); field('日志类型', view, 'token-view'); filter.appendChild(grid)
+    function preset(window) { tokenQuery = {window:window,view:view.value,category:category.value,offset:0}; loadTab('tokens') }
+    filter.appendChild(actionsRow([
+      {label:'查询', onClick:function () { if (!from.value || !to.value || from.value >= to.value) { toast('请填写有效的开始和结束时间'); return }; tokenQuery = {from:from.value,to:to.value,view:view.value,category:category.value,offset:0}; loadTab('tokens') }},
+      {label:'今天', ghost:true, onClick:function () { preset('today') }}, {label:'昨天', ghost:true, onClick:function () { preset('yesterday') }},
+      {label:'近 7 天', ghost:true, onClick:function () { preset('7d') }}, {label:'全部明细', ghost:true, onClick:function () { preset('all') }},
+    ]))
+    filter.appendChild(h('p', 'dsh-bili-sub', '日期和时间均按北京时间；选择某一天可用当天 00:00 至次日 00:00。'))
     var cards = h('div', 'dsh-fb-cards')
     function card(value, label) {
       var c = h('div', 'dsh-fb-card')
@@ -1097,25 +1315,40 @@ window.__ModuleLoader__.load({
       c.appendChild(h('span', null, label))
       return c
     }
-    cards.appendChild(card(money === null ? '—' : (symbol + Number(money).toFixed(4)), '累计花费（' + (d.currency || 'CNY') + '）'))
-    cards.appendChild(card(String(total + hit + out), '总 token'))
-    cards.appendChild(card(String(total), '未命中输入'))
-    cards.appendChild(card(String(hit), '缓存命中输入'))
-    cards.appendChild(card(String(out), '输出'))
-
-    var nodes = [section('用量与花费', [cards])]
-    if (tier.model) {
-      nodes.push(section('当前计价（' + (tier.tierLabel || '') + '）', [
-        kv('模型', tier.label || tier.model),
-        kv('未命中输入', tier.cacheMiss + ' 元/百万'),
-        kv('缓存命中', tier.cacheHit + ' 元/百万'),
-        kv('输出', tier.output + ' 元/百万'),
-        kv('峰谷倍率', d.priceTable ? (d.priceTable.peakMultiplier + '×（高峰时段）') : '—'),
-      ]))
-    }
-    nodes.push(h('div', 'dsh-fb-warn', '价目表版本 ' + (d.priceVersion || '?') + '，按 DeepSeek 官方价折算。你若在用 qwen 等第三方模型，需要在桥接 config.json 的 pricing.models 里登记该模型价格，否则这里会按默认价估算。'))
-    nodes.push(actionsRow([{ label: '刷新', ghost: true, onClick: function () { loadTab('tokens') } }]))
-    setBody(nodes)
+    cards.appendChild(card(money(t.cost), '所选范围估算花费'))
+    cards.appendChild(card(number(t.tokens), '所选范围 Token'))
+    cards.appendChild(card(number(t.requests), '模型请求次数'))
+    cards.appendChild(card(number(t.cacheHit), '缓存命中输入'))
+    cards.appendChild(card(number(t.cacheMiss), '未命中输入'))
+    cards.appendChild(card(number(t.cacheWrite), '缓存写入'))
+    cards.appendChild(card(number(t.output), '输出 Token'))
+    cards.appendChild(card(money(d.cumulative && d.cumulative.cost), '全部会话累计估算 · 含历史基线'))
+    box('用量与花费').appendChild(cards)
+    var logs = box('消耗日志 · ' + number(d.total) + ' 条'), list = h('div', 'dsh-token-log')
+    var labels = {chat:'QQ 对话', bili:'刷 B站', internal:'内部任务'}, states = {completed:'完成',failed:'失败',running:'进行中',recorded:'已记录',cancelled:'已取消',interrupted:'已中断'}
+    ;(d.entries || []).forEach(function (entry) {
+      var row = h('div', 'dsh-token-row'), head = h('div', 'dsh-token-rowhead')
+      var title = d.view === 'tools' ? entry.tool : d.view === 'tasks' ? 'B站任务 ' + String(entry.runId || entry.id).slice(0, 12) : '第 ' + entry.turn + ' 轮' + (d.view === 'requests' ? ' · 步骤 ' + entry.step + (entry.retry ? ' · 重试 ' + entry.retry : '') : '')
+      head.appendChild(h('strong', null, title)); head.appendChild(h('span', 'dsh-bili-sub', d.view === 'tools' ? '无独立 Token 回执' : entry.cost === null ? '用量待确认' : money(entry.cost))); row.appendChild(head)
+      row.appendChild(h('div', 'dsh-bili-sub', stamp(entry.startedAt) + ' · ' + (labels[entry.category] || entry.category || '未归属') + ' · ' + (entry.key || '未归属会话')))
+      if (d.view === 'tools') {
+        var related = entry.related
+        row.appendChild(h('div', 'dsh-bili-sub', (states[entry.status] || entry.status || '已记录') + (entry.durationMs !== null ? ' · 耗时 ' + number(entry.durationMs) + ' 毫秒' : '') + (related ? ' · 关联步骤 ' + number(related.tokens) + ' Token / ' + money(related.cost) + '（共享参考，不另计费）' : ' · 未获取关联模型步骤的用量明细')))
+      } else if (entry.tokens === null) row.appendChild(h('div', 'dsh-bili-sub', (states[entry.status] || entry.status || '已记录') + ' · 尚未收到模型用量回执，不能视为零花费。'))
+      else row.appendChild(h('div', 'dsh-bili-sub', number(entry.tokens) + ' Token · 未命中 ' + number(entry.cacheMiss) + ' / 命中 ' + number(entry.cacheHit) + ' / 写入 ' + number(entry.cacheWrite) + ' / 输出 ' + number(entry.output) + (entry.requests ? ' · ' + entry.requests + ' 次模型请求' : '') + (entry.model ? ' · ' + entry.model : '')))
+      row.appendChild(h('div', 'dsh-bili-sub', '会话 ' + entry.sessionId + (entry.runId ? ' · 任务 ' + entry.runId : '')))
+      list.appendChild(row)
+    })
+    if (!(d.entries || []).length) list.appendChild(h('div', 'dsh-bili-logempty', '该时间范围内没有相应明细。'))
+    logs.appendChild(list)
+    logs.appendChild(actionsRow([
+      {label:'上一页',ghost:true,onClick:function () { tokenQuery.offset = Math.max(0, (d.offset || 0) - (d.limit || 50)); loadTab('tokens') }},
+      {label:'下一页',ghost:true,onClick:function () { if (d.hasMore) { tokenQuery.offset = (d.offset || 0) + (d.limit || 50); loadTab('tokens') } }},
+      {label:'刷新',ghost:true,onClick:function () { loadTab('tokens') }},
+    ]))
+    root.appendChild(h('p', 'dsh-bili-sub', d.note || '金额按配置价目表估算。'))
+    if (d.coverage) root.appendChild(h('p', 'dsh-bili-sub', '当前保留 ' + number(d.coverage.retainedRequests) + ' 条请求明细（上限 ' + number(d.coverage.detailLimit) + ' 条）；仅剩累计基线的历史不能精确分配到日期或工具。'))
+    setBody([root])
   }
 
   function renderStickersTab(d) {
@@ -1392,11 +1625,16 @@ window.__ModuleLoader__.load({
     var cx = Math.max(80, Math.min(window.innerWidth - 80, pos.left + BALL / 2))
     var cy = Math.max(8, pos.top - 44)
     var el = document.createElement('div')
-    el.className = 'dsh-fb-toast'
+    el.className = 'dsh-fb-toast' + (modal ? ' in-dialog' : '')
+    el.setAttribute('role', 'status')
+    el.setAttribute('aria-live', 'polite')
     el.textContent = text
-    el.style.left = Math.round(cx) + 'px'
-    el.style.top = Math.round(cy) + 'px'
-    document.body.appendChild(el)
+    if (modal) modal.wrap.querySelector('.dsh-fb-dialog').appendChild(el)
+    else {
+      el.style.left = Math.round(cx) + 'px'
+      el.style.top = Math.round(cy) + 'px'
+      document.body.appendChild(el)
+    }
     toastEl = el
     if (toastTimer) clearTimeout(toastTimer)
     toastTimer = setTimeout(function () {

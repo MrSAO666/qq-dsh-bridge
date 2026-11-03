@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import { emptyBiliQueue, enqueueBiliReport, beginBiliDelivery, resolveBiliDelivery, recoverBiliDelivery } from '../src/bili-delivery-queue.mjs';
+let q = emptyBiliQueue();
+q = enqueueBiliReport(q, { id: 'round-1', text: '一条视频' });
+q = enqueueBiliReport(q, { id: 'round-1', text: '重复内容' });
+assert.equal(q.items.length, 1);
+q = beginBiliDelivery(q, 'round-1');
+assert.throws(() => beginBiliDelivery(q, 'round-1'));
+let recovered = recoverBiliDelivery(q);
+assert.equal(recovered.items[0].status, 'uncertain');
+assert.throws(() => beginBiliDelivery(recovered, 'round-1'));
+q = resolveBiliDelivery(q, 'round-1', 'not_sent');
+q = beginBiliDelivery(q, 'round-1');
+q = resolveBiliDelivery(q, 'round-1', 'sent');
+assert.equal(q.items[0].status, 'sent');
+console.log('B站汇报队列测试通过');

@@ -32,7 +32,7 @@ export const REPO_ROOT = path.resolve(__dirname, '..');
  *   · qq-chat-owner      —— 管理员档（private:<ownerQQ>）：完整本地工具。
  * 会话怎么选档在 src/bridge.js 的 presetForSession()；这个清单只负责生成/安装 patch。
  */
-export const PRESETS = ['qq-chat', 'qq-chat-v2', 'qq-chat-owner', 'qq-chat-readonly'];
+export const PRESETS = ['qq-chat', 'qq-chat-v2', 'qq-chat-owner', 'qq-chat-readonly', 'qq-bili-worker'];
 
 /** preset 行 id：与 config.id（桥接解析的 preset 名）区分开，方便在 profile patch 里按行定位。 */
 export function presetRowId(name) {

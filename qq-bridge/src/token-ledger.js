@@ -199,7 +199,12 @@ export function createTokenLedger({
       // 幂等关键：只有 seq **严格更新**才允许覆盖。
       // 相等 seq 只可能是同一条事件的重放（重连时 snapshot 会重发），
       // 若放行「相等 seq 覆盖」，旧快照就能把新数据改小 —— 花费会凭空缩水。
-      if (prev && seq >= 0 && prev.seq >= seq) return false;
+      if (prev && seq >= 0 && prev.seq >= seq) {
+        if(prev.seq===seq && !prev.model && typeof record.model==='string') {
+          samples.set(sk,{...prev,model:record.model,provider:prev.provider??record.provider});return true;
+        }
+        return false;
+      }
       samples.set(sk, {
         sessionId: sid,
         key: record.key,
@@ -425,7 +430,16 @@ export function createTokenLedger({
     const key = keyOf(sessionId);
     const sk = sampleKeyOf(sessionId, turn, step, retry);
     const prev = samples.get(sk);
-    if (prev && seq >= 0 && prev.seq >= seq) return false;
+    if (prev && seq >= 0 && prev.seq >= seq) {
+      // A replay may supply a previously missing request-header model. Enrich
+      // metadata only: equal seq must never overwrite usage or its timestamp.
+      if(prev.seq===seq && !prev.model && typeof eventModel==='string') {
+        const enriched={...prev,model:eventModel,provider:prev.provider??eventProvider};
+        samples.set(sk,enriched);
+        appendLine({k:'turn',t:prev.t,sid:sessionId,key:prev.key,seq:prev.seq,turn,step,retry,model:enriched.model,provider:enriched.provider,b:prev.buckets});return true;
+      }
+      return false;
+    }
 
     const record = {
       k: 'turn', t, sid: sessionId, key, seq,
@@ -485,10 +499,13 @@ export function createTokenLedger({
   function ingestSnapshotRecords({ sessionId, records, at } = {}) {
     if (!Array.isArray(records)) return 0;
     let n = 0;
+    let model, provider;
     for (const entry of records) {
       const event = entry?.type === 'event' ? entry.event : entry;
       if (!event || typeof event !== 'object') continue;
-      if (ingestEvent({ sessionId, event, origin: 'snapshot', at })) n += 1;
+      if(event.type === 'model/selection') { model=event.data?.model;provider=event.data?.provider; }
+      if(event.type === 'request/header') { const c=event.data?.header?.config; if(c?.model)model=c.model;if(c?.provider)provider=c.provider; }
+      if (ingestEvent({ sessionId, event, origin: 'snapshot', at, model, provider })) n += 1;
     }
     return n;
   }
@@ -877,9 +894,14 @@ export function createTokenLedger({
   /** 最近采样流水（实时观察用，按时间倒序）。 */
   function recent(limit = 50) {
     const n = Math.max(1, Math.min(500, Number(limit) || 50));
+    return requests().slice(0, n);
+  }
+
+  // Management reports need all retained samples before filtering/pagination.
+  function requests() {
     const all = [...samples.values()].sort((a, b) => b.t - a.t);
     const out = [];
-    for (const s of all.slice(0, n)) {
+    for (const s of all) {
       const p = priceUsage(s.buckets, { model: s.model, at: s.t || now(), table: priceTable });
       out.push({
         time: s.t,
@@ -949,6 +971,7 @@ export function createTokenLedger({
     conversation,
     series,
     recent,
+    requests,
     stats,
     reset,
     compact,

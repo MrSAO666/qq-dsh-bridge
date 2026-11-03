@@ -152,9 +152,16 @@ await test('toolGuardReason：三档矩阵（strict / readonly / open）', async
   // 所以它属于"不可授予"——见下面单独断言。
   const writeTools = ['write', 'edit'];
   const execTools = ['pwsh', 'bash'];
-  const neverGranted = ['dev_inject_plugin', 'plugin_manager', 'session_search', 'subagent', 'job_list', 'schedule_create', 'read_mcp_resource', 'working_directory', 'load_workspace_dependencies', 'str_replace_editor'];
+  const neverGranted = ['dev_inject_plugin', 'plugin_manager', 'session_search', 'job_list', 'schedule_create', 'read_mcp_resource', 'working_directory', 'load_workspace_dependencies', 'str_replace_editor'];
+  const delegation = ['subagent', 'subagent_fork', 'list_subagent_models', 'send_message', 'interrupt_agent', 'list_agents'];
+  delegation.push('mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video', 'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment');
+  for (const name of delegation) {
+    assert.ok(allows(MODES.OPEN, name), `owner: ${name} 应放行`);
+    assert.ok(denies(MODES.STRICT, name), `strict: ${name} 应拒绝`);
+    assert.ok(denies(MODES.READONLY, name), `readonly: ${name} 应拒绝`);
+  }
 
-  for (const mode of Object.values(MODES)) {
+  for (const mode of [MODES.STRICT, MODES.READONLY, MODES.OPEN]) {
     for (const name of [...mcp, 'ask_user_question', 'todo_write']) {
       assert.ok(allows(mode, name), `${mode}: ${name} 应放行`);
     }
@@ -162,6 +169,8 @@ await test('toolGuardReason：三档矩阵（strict / readonly / open）', async
       assert.ok(denies(mode, name), `${mode}: ${name} 永不授予（含 owner 档）`);
     }
   }
+  for (const name of [...mcp, ...readonlyTools, ...writeTools, ...execTools, 'subagent', 'plugin_manager']) assert.ok(denies(MODES.BILI, name), `bili: ${name} 必须拒绝`);
+  for (const name of ['mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video', 'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment']) assert.ok(allows(MODES.BILI, name), `bili: ${name} 应放行`);
   assert.ok(allows(MODES.STRICT, 'read') === false, 'strict：连只读工具都没有');
   assert.ok(denies(MODES.STRICT, 'read'));
   for (const name of readonlyTools) {
@@ -201,7 +210,9 @@ await test('apply 真的按行级 config.mode 建 guard（open / readonly / 未�
     assert.equal(strict.guard({ name: 'mcp__snowluma__qq_send_message' }), undefined);
   }
   // 三档共用同一份注册期隐藏名单：open 也要把 dev_* 从 schema 里藏掉
-  assert.equal(open.hidden.size, mod.RESTRICTED_TOOL_NAMES.length, 'open 档同样要跑完整 restrict 名单');
+  assert.equal(open.hidden.size, mod.RESTRICTED_TOOL_NAMES.length - 7, 'open 档只放行 B站受控工具');
+  assert.ok(!open.hidden.has('mcp__bili-read__bili_search'));
+  assert.ok(readonly.hidden.has('mcp__bili-read__bili_search'));
   assert.ok(open.hidden.has('dev_inject_plugin') && open.hidden.has('working_directory'));
 });
 

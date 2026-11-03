@@ -30,12 +30,18 @@ import { hardenDir, manualDirCommand } from './state-acl.mjs';
 import { extractForwardIds, forwardIdFromData, sanitizeForwardId, formatForwardResponse } from './forward.js';
 import { resolvePriceTable } from './model-prices.js';
 import { createTokenLedger } from './token-ledger.js';
+import { createTokenAudit } from './token-audit.mjs';
+import { createTokenChildObserver } from './token-child-watch.mjs';
 import { createStore as createMemoryStore } from './memory-store.js';
 import { selectForInjection as selectFactsForInjection } from './memory-facts.js';
 import { createRecall } from './memory-search.js';
 import { createArtifactStore } from './artifact-store.js';
 import { createMediaFetchCache } from './media-fetch-cache.mjs';
 import { inWindow, readBudget, reserveSend } from './proactive-policy.mjs';
+import { DEFAULT_BILI_CONFIG, normalizeBiliConfig } from './bili-config.mjs';
+import { createBiliClient } from './bili-client.mjs';
+import { readBiliLogs } from './bili-log.mjs';
+import { createBiliAutomation } from './bili-automation.mjs';
 import {
   loadSlang,
   saveSlang,
@@ -1526,6 +1532,29 @@ async function main() {
   hardenStateDirAcl();
   acquireLock();
   loadState();
+  const biliDir = path.join(STATE_DIR, 'bili');
+  const biliConfigFile = path.join(biliDir, 'config.json');
+  let biliAutomation;
+  const biliPython = process.platform === 'win32'
+    ? path.join(biliDir, '.venv', 'Scripts', 'python.exe')
+    : path.join(biliDir, '.venv', 'bin', 'python');
+  let biliClient;
+  function getBiliClient() {
+    if (!biliClient) biliClient = createBiliClient({ python: biliPython, script: path.join(ROOT, 'vendor', 'bilibili-mcp', 'mcp_server.py'), dataDir: biliDir });
+    return biliClient;
+  }
+  function getBiliConfig() {
+    try { return normalizeBiliConfig(JSON.parse(fs.readFileSync(biliConfigFile, 'utf8'))); }
+    catch (e) { if (e.code === 'ENOENT') return normalizeBiliConfig(structuredClone(DEFAULT_BILI_CONFIG)); throw e; }
+  }
+  function saveBiliConfig(value) {
+    const validated = normalizeBiliConfig(value);
+    fs.mkdirSync(biliDir, { recursive: true, mode: 0o700 });
+    const tmp = path.join(biliDir, `config.${crypto.randomUUID()}.tmp`);
+    try { fs.writeFileSync(tmp, JSON.stringify(validated, null, 2) + '\n', { mode: 0o600, flag: 'wx' }); fs.renameSync(tmp, biliConfigFile); }
+    catch (e) { try { fs.unlinkSync(tmp); } catch {} throw e; }
+    return validated;
+  }
 
   // ── 群聊黑话/网络用语学习（slang） ──────────────────────────────────────
   let slangEntries = [];
@@ -2700,16 +2729,21 @@ async function main() {
   // 权威总量取 DSH 的 tokenUsage 投影（整条会话日志累计，含桥接启动前的历史），
   // 逐轮明细由 assistant/message 的 usage 折叠而来；花费在读取时按价目表折算。
   const priceTable = resolvePriceTable(cfg.pricing);
+  let tokenAudit;
   const tokenLedger = createTokenLedger({
     file: TOKEN_USAGE_FILE,
     log: (...args) => log(...args),
     priceTable,
     // 会话 → QQ 会话归属：学习会话单独记账，其余未知会话归入「未归属」。
-    resolveKey: (sessionId) => reverse.get(sessionId)
+    resolveKey: (sessionId) => reverse.get(sessionId) ?? tokenAudit?.sessionMeta(sessionId)?.key
       ?? (learnerSessions.has(sessionId) || (slangLearnerSessionId && sessionId === slangLearnerSessionId)
         ? 'internal:黑话学习'
         : undefined)
   });
+  tokenAudit = createTokenAudit({file:path.join(STATE_DIR,'token-audit.jsonl'),ledger:tokenLedger,log});
+  const tokenChildObserver = createTokenChildObserver({api,audit:tokenAudit,log,
+    onSnapshot:(sid,snapshot)=>recordSessionSnapshot(sid,snapshot,{rebuild:false}),onEvent:recordSessionUsage});
+  for(const child of tokenAudit.childSessions())tokenChildObserver.follow({parentSessionId:child.parentSessionId,childSessionId:child.sid,mode:child.mode,label:child.label,key:child.key});
 
   /** sessionId -> 最近一次已知的实际模型。切换模型会让单价差好几倍，所以按会话记。 */
   const sessionModels = new Map();
@@ -2725,7 +2759,11 @@ async function main() {
   /** 摄入一条会话事件到 token 账本；任何异常都不能影响 QQ 主链路。 */
   function recordSessionUsage(sessionId, event) {
     try {
+      registerUsageSession(sessionId);
+      tokenChildObserver.observeParent(sessionId,event);
+      tokenAudit.ingestEvent(sessionId,event);
       if (event?.type === 'model/selection') rememberModel(sessionId, event.data);
+      if (event?.type === 'request/header') rememberModel(sessionId, event.data?.header?.config);
       const known = sessionModels.get(sessionId);
       tokenLedger.ingestEvent({
         sessionId,
@@ -2738,15 +2776,23 @@ async function main() {
     }
   }
 
+  function registerUsageSession(sessionId) {
+    if(tokenAudit.sessionMeta(sessionId))return;
+    const key=reverse.get(sessionId)??(learnerSessions.has(sessionId)?'internal:黑话学习':undefined);
+    if(key)tokenAudit.registerSession({sessionId,key,category:key.startsWith('internal:')?'internal':'chat'});
+  }
+
   /**
    * 处理会话开场快照：
    * 1. `projections.tokenUsage` 是**整条会话日志**的权威累计桶（含桥接启动前的历史）；
    * 2. `records` 是最近若干条历史事件，用来回填「逐轮花费」。
    * 重连时该帧会重新下发，账本内部按 (turn, step, retry) + seq 做幂等折叠，不会翻倍。
    */
-  function recordSessionSnapshot(sessionId, snapshot) {
+  function recordSessionSnapshot(sessionId, snapshot, {rebuild=true} = {}) {
     try {
       if (!snapshot) return;
+      registerUsageSession(sessionId);
+      tokenChildObserver.observeParent(sessionId,snapshot,true);
       const selection = snapshot.projections?.values?.modelSelection;
       rememberModel(sessionId, selection?.lastUsed ?? selection?.pending ?? null);
       const known = sessionModels.get(sessionId);
@@ -2758,7 +2804,8 @@ async function main() {
         provider: known?.provider ?? cfg.dsh?.provider
       });
       tokenLedger.ingestSnapshotRecords({ sessionId, records: snapshot.records });
-      rebuildInFlightCollector(sessionId, snapshot.records);
+      for(const record of snapshot.records||[])tokenAudit.ingestEvent(sessionId,record?.event||record);
+      if(rebuild)rebuildInFlightCollector(sessionId, snapshot.records);
     } catch (error) {
       log('token 账本：处理会话快照失败', error?.message ?? error);
     }
@@ -3626,6 +3673,29 @@ async function main() {
         }
       }
       try {
+        // B 站配置和扫码仅面向管理界面，任何 agent 请求一律拒绝。
+        if (url.pathname.startsWith('/api/bili/')) {
+          if (req.headers['x-agent-call'] !== undefined || req.headers['x-agent-token'] !== undefined) { sendJson({ ok: false, error: '该接口仅供管理端使用' }, 403); return; }
+          if (req.method === 'GET' && url.pathname === '/api/bili/config') {
+            const run = biliAutomation?.snapshot();
+            sendJson({ ok: true, config: getBiliConfig(), implementationReady: !!biliAutomation,
+              automation: run ? { active: run.active?.status ?? null, counts: run.counts, lastAutomaticAt: run.lastAutomaticAt ?? null } : null }); return;
+          }
+          if (req.method === 'GET' && url.pathname === '/api/bili/logs') { sendJson({ ok: true, ...readBiliLogs(TOOL_LOG_FILE, 80, path.join(biliDir, 'events.jsonl')) }); return; }
+          if (req.method === 'POST' && url.pathname === '/api/bili/config') {
+            const body = await readBody();
+            sendJson({ ok: true, config: saveBiliConfig(body.config) }); return;
+          }
+          if (req.method === 'POST' && url.pathname === '/api/bili/login') {
+            const body = await readBody();
+            const methods = { start: 'bili_login', check: 'bili_login_check', status: 'bili_check_credential' };
+            if (!Object.hasOwn(methods, body.action)) { sendJson({ ok: false, error: '登录操作无效' }, 400); return; }
+            const result = await getBiliClient().call(methods[body.action]);
+            // QR data belongs only in this authenticated response, never logs.
+            sendJson({ ok: true, result }); return;
+          }
+          sendJson({ ok: false, error: 'B站接口不存在' }, 404); return;
+        }
         // 空 agent token 一律拒绝，防止 MCP 传入空字符串时被当作“管理端/无 token”绕过校验
         if (req.headers['x-agent-token'] === '') {
           sendJson({ ok: false, error: 'agent token 不能为空' }, 403);
@@ -4814,6 +4884,13 @@ async function main() {
             if (merged.send.recommendedHint !== undefined) merged.send.recommendedHint = String(merged.send.recommendedHint ?? '');
           }
           // wait：数值归一化
+          if (body.replyCheck && typeof body.replyCheck === 'object' && !Array.isArray(body.replyCheck)) {
+            const windowMs = Number(body.replyCheck.windowMs ?? current.replyCheck?.windowMs ?? 90000);
+            if (!Number.isFinite(windowMs) || windowMs < 5000 || windowMs > 300000) {
+              sendJson({ ok: false, error: '回复后的留意时长应为 5～300 秒' }, 400); return;
+            }
+            merged.replyCheck = { ...(current.replyCheck ?? {}), ...body.replyCheck, windowMs: Math.round(windowMs) };
+          }
           if (body.wait && typeof body.wait === 'object') {
             merged.wait = { ...(current.wait ?? {}), ...body.wait };
             for (const k of ['defaultMs', 'minMs', 'maxMs', 'defaultQuietMs', 'minQuietAfterNewMs']) {
@@ -5211,6 +5288,9 @@ async function main() {
           const acSt = getSocialV2State(key);
           const acStickerCfg = cfg.socialV2?.sticker ?? {};
           const parts = [];
+          const roleState = readRoleState();
+          const roleHint = cfg.socialV2?.injectViaSystemPrompt === true ? currentRoleHintV2() : '';
+          if (roleState.role && roleHint) parts.push(`【当前角色】${roleState.role}\n${roleHint.trim()}`);
           const idText = selfIdentityTextV2();
           if (idText) parts.push(idText.trim());
           parts.push(`【会话令牌】${acSt.agentToken}（调用二代状态工具时请在参数中带上此令牌）`);
@@ -5226,7 +5306,7 @@ async function main() {
             log(`[memory] 长期记忆渲染失败（已跳过）：${error?.message ?? error}`);
           }
           if (factsText) parts.push(factsText);
-          sendJson({ ok: true, key, text: parts.join('\n\n') });
+          sendJson({ ok: true, key, role: { name: roleState.role ?? null, injectedChars: roleHint.length, limit: roleInjectMaxChars }, text: parts.join('\n\n') });
           return;
         }
         if (req.method === 'GET' && url.pathname === '/api/socialV2/recall') {
@@ -7051,6 +7131,11 @@ async function main() {
         // 不应让某个群里的 AI 读到别的群烧了多少钱。这里再显式拒绝一次做双保险。
         if (url.pathname === '/api/tokens/summary' || url.pathname.startsWith('/api/tokens/')) {
           if (req.headers['x-agent-token']) { sendJson({ ok: false, error: '该接口仅控制台可用' }, 403); return; }
+          if (req.method === 'GET' && url.pathname === '/api/tokens/report') {
+            try { sendJson(tokenAudit.query(Object.fromEntries(url.searchParams))); }
+            catch(error) { sendJson({ok:false,error:error.message},400); }
+            return;
+          }
           if (req.method === 'GET' && url.pathname === '/api/tokens/summary') {
             const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 200));
             sendJson({ ...tokenLedger.summary({ limit }), ledger: tokenLedger.stats() });
@@ -7077,6 +7162,7 @@ async function main() {
           }
           if (req.method === 'POST' && url.pathname === '/api/tokens/reset') {
             tokenLedger.reset();
+            tokenAudit.reset();
             log('控制台：token 用量账本已重置');
             sendJson({ ok: true });
             return;
@@ -8751,7 +8837,8 @@ async function main() {
 
   function clampGapV2(ms, sendCfg) {
     const min = Math.max(100, Number(sendCfg.burstIntervalMinMs) || 300);
-    const max = Math.max(min, Number(sendCfg.maxGapMs) || 10000);
+    // The advanced cap must not silently shorten the interval configured in UI.
+    const max = Math.max(min, Number(sendCfg.burstIntervalMaxMs) || 3000, Number(sendCfg.maxGapMs) || 10000);
     return Math.max(min, Math.min(max, Math.round(Number(ms) || min)));
   }
 
@@ -11336,7 +11423,7 @@ async function main() {
 
   function buildWakePromptV2(key, reason) {
     const roleState = readRoleState();
-    const roleLine = roleState.role ? buildRoleLineV2(roleState.role) : '';
+    const roleLine = roleState.role && cfg.socialV2?.injectViaSystemPrompt !== true ? buildRoleLineV2(roleState.role) : '';
     // 这几段（身份 / 令牌 / 表情 / 长期记忆）现在由 DSH 插件
     // `plugins/qq-agent-context` 注入到**系统提示词**里：模型照样看得到，但不再进对话历史，
     // 也就不会让每一轮唤醒读起来像一张工单。开关关掉就回到旧行为（全部塞进 user message）。
@@ -11560,7 +11647,7 @@ async function main() {
    * 只给私聊挂窗口：私聊任何新消息都算"回应你"；群聊靠 @/引用规则唤醒，
    * 挂窗口会让每条群聊闲话都可能叫醒它，成本反而涨。
    */
-  function armReplyWindowV2(key, ms) {
+  function armReplyWindowV2(key, ms = cfg.socialV2?.replyCheck?.windowMs) {
     if (cfg.socialV2?.enabled === false) return;
     if (socialV2.paused || currentMode !== 'reserved2') return;
     if (String(key).startsWith('group:')) return;
@@ -13357,6 +13444,37 @@ async function main() {
   }
   startDshWatch();
   startSnowlumaWatch();
+  biliAutomation = createBiliAutomation({
+    stateFile: path.join(biliDir, 'run.json'), api, getConfig: getBiliConfig, log,
+    getParent: async () => {
+      if (!dshReady || currentMode !== 'reserved2' || !cfg.ownerQQ) return null;
+      const key = `private:${cfg.ownerQQ}`;
+      if (!isSessionAllowedInCurrentMode(key) || modePreset(key, currentMode, cfg) !== 'qq-chat-owner' || isConversationBusyV2(key, getSocialV2State(key))) return null;
+      const sessionId = await ensureSession(key);
+      return { sessionId, reportTarget: key };
+    },
+    dispatchPrompt: async (sessionId, promptText) => {
+      const key = `private:${cfg.ownerQQ}`;
+      if (state.sessions[key] !== sessionId) return { ok: false };
+      const silentId = `bili-${crypto.randomUUID()}`;
+      social.silentTurns.set(sessionId, [...(social.silentTurns.get(sessionId) ?? []), { id: silentId, ts: Date.now() }]);
+      try {
+        const result = await deliverPrompt(key, promptText, { silent: true });
+        if (result?.ok && !result.queued && !result.retried) return { ok: true };
+        throw new Error('刷站请求未直接送达 DSH');
+      } catch (error) {
+        const next = (social.silentTurns.get(sessionId) ?? []).filter(x => x.id !== silentId);
+        if (next.length) social.silentTurns.set(sessionId, next); else social.silentTurns.delete(sessionId);
+        throw error;
+      }
+    },
+    // The DSH subagent completion already returns its result to the parent.
+    // Do not independently forward the result to QQ.
+    onReport: () => {},
+  });
+  const biliTick = () => { void biliAutomation.tick(); };
+  setTimeout(biliTick, 30000).unref?.();
+  setInterval(biliTick, 60000).unref?.();
   startConsoleServer();
   // 上下文只在「闲置边界」压缩：对话进行中一律不压（见 idleCompactV2 的说明）。
   startIdleCompactionWatch();

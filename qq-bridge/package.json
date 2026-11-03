@@ -22,6 +22,7 @@
     "test:audit": "node scripts/test-audit.mjs",
     "test:token": "node scripts/test-token-economy.mjs && node scripts/test-reply-wait.mjs && node scripts/test-qq-model-view.mjs && node scripts/test-qq-preset-contract.mjs",
     "test:tokens": "node scripts/test-token-usage.mjs",
+    "test:token-audit": "node scripts/test-token-audit.mjs && node scripts/test-token-child-watch.mjs && node scripts/test-token-report-api.mjs",
     "test:hardening": "node scripts/test-hardening.mjs",
     "test:reply-wait": "node scripts/test-reply-wait.mjs",
     "self-test": "node src/self-test.js",

@@ -1,524 +1,217 @@
-> 基于 NoMindSama/qq-dsh-bridge 做了一些网页版的适配。
+# QQ DSH Bridge
 
-# QQ DSH Bridge · 让 DSH 住进 QQ
+将 DeepSeek Harness（DSH）接入 QQ，并在同一套人格、长期记忆和权限配置下扩展 B 站浏览能力。本仓库是 [NoMindSama/qq-dsh-bridge](https://github.com/NoMindSama/qq-dsh-bridge) 的个人适配分支，主要补充云端 Web 设置、B 站子 Agent 和用量审计。
 
-> 把一个真正能干活、有记忆、还会慢慢长成"只属于你"的 AI Agent，搬进你的 QQ。
+QQ 与 B 站均需使用你有权操作的账号。项目不会提供平台账号、模型额度或第三方网关的分发包。
 
-不是"QQ 机器人框架"，而是**把 DSH（DeepSeek Harness）桌面端 agent 接进 QQ 的适配层**。它不模拟一个假人，它就是你在桌面端用的那个 agent —— 只是换了个入口说话。
+## 功能
 
-```
-QQ 私聊 / 群聊  ⇄  SnowLuma(OneBot v11)  ⇄  qq-bridge  ⇄  DSH Web API  ⇄  agent loop  ⇄  MCP 工具
-```
+| 模块 | 当前能力 |
+| --- | --- |
+| QQ 收发 | 通过 SnowLuma / OneBot v11 接收私聊和群消息，发送文字、图片、表情、语音等；具体能力受网关支持影响。 |
+| 权限 | 区分主人、白名单与普通聊天会话；通用子 Agent 仅向主人开放，群聊使用受限预设。 |
+| 人格 | 从 `qq-bridge/roles/*.md` 选择角色卡；支持按一代/二代模式筛选及注入长度限制。 |
+| 长期记忆 | 复用桥接已有的事实、原文检索、产物索引和自我认知，不额外安装另一套记忆插件。 |
+| 回复节奏 | 设置思考强度、主动聊天提示词/时间范围/次数、合并消息、等待、发送间隔和频率限制。 |
+| B 站 | 扫码登录、按关键词/UP 主/推荐流找视频；只读取有字幕的视频；按开关和限额点赞、评论、回复。 |
+| 自动刷站 | 由主人主 Agent 派出受限子 Agent，独立于 QQ 主动聊天额度；结束后汇报给主 Agent。 |
+| 用量 | 汇总主会话及可发现子 Agent 的模型 Token；支持北京时间日期/时间段、用途、对话/请求/工具/刷站任务日志。 |
+| 管理页面 | DSH 悬浮球内提供状态、回复节奏、B 站、人格、Token 花费、表情、权限与诊断。 |
 
----
+### 已知限制
 
-## 目录
-
-- [它是什么 / 不是什么](#它是什么--不是什么)
-- [能做什么](#能做什么)
-- [架构](#架构)
-- [三个核心设计](#三个核心设计)
-  - [人格：三层结构，而且会成长](#1-人格三层结构而且会成长)
-  - [上下文：只在闲置边界压缩](#2-上下文只在闲置边界压缩)
-  - [记忆：四层 + 一层关于自己](#3-记忆四层--一层关于自己)
-- [安装](#安装)
-  - [前置条件](#前置条件)
-  - [方式 A：手动安装](#方式-a手动安装推荐)
-  - [方式 B：让 Agent 帮你装](#方式-b让-agent-帮你装)
-  - [配置 config.json](#配置-configjson)
-  - [怎么确认装好了](#怎么确认装好了)
-- [日常使用](#日常使用)
-- [目录结构](#目录结构)
-- [常见问题](#常见问题)
-- [二次开发](#二次开发)
-
----
-
-## 它是什么 / 不是什么
-
-**是**：
-
-- 一个把 DSH agent 当作"人"接进 QQ 的桥接层
-- 一个能让 AI 主动干活的地方：读写文件、执行命令、发文件、发表情、搜索、发说说
-- 一个会记住你、并且会记住"自己变成了什么样"的 AI
-- 一套把 token 成本压到最低的上下文管理机制
-
-**不是**：
-
-- 不是"接了个大模型 API 的聊天机器人"——它背后是完整的 agent 循环，能多步调用工具
-- 不是开箱即用的 SaaS——需要你自己准备 DSH、SnowLuma、一个 QQ 号
-- 不是"无感知部署"——出于雪鸮（SnowLuma）的 EULA 限制，**桥接只探测、不代启 SnowLuma**，每次开机需要你手动启动它
-
----
-
-## 能做什么
-
-| 能力 | 说明 |
-|---|---|
-| **私聊对话** | owner 私聊走"助手档"：完整本地工具（读写文件、pwsh），能远程操作电脑 |
-| **群聊参与** | 群聊走"群友档"：能聊天、发表情、看图、搜索，但**没有本地工具和管理权限**（防越权） |
-| **远程控制** | 私聊里让它"把桌面那份报告发给我"、"看看这个文件"、"跑个命令" |
-| **发文件** | 仅 owner；47 种扩展名白名单、敏感路径黑名单、30MB 上限 |
-| **表情包** | 收藏、识别（看图理解）、发送、斗图；动图会抽帧拼网格 |
-| **看图** | 收到的图片/表情直接进模型上下文 |
-| **合并转发** | 能读嵌套转发内容 |
-| **QQ 空间** | 发说说 / 列表 / 删除（仅 owner，每日限额） |
-| **联网搜索** | 搜索 + 抓取正文，带 SSRF 防护 |
-| **长期记忆** | 四层记忆 + 检索 + 自我认知（见下文） |
-| **多档权限** | owner / 只读白名单 / 仅聊天，三档 preset 物理隔离 |
-| **可视化控制台** | 状态、节奏、人格、Token 花费、表情、访问控制、诊断 |
-
----
+- B 站 `@` 功能尚未接入。即使页面配置了开关和名单，当前工具仍拒绝评论中的 `@`。
+- 尚未实现跨轮视频去重，以及主人手动刷站与自动任务的统一互斥。
+- 子 Agent 不会自动继承主会话全部历史；主 Agent 需给它传递本次有关的兴趣与表达偏好。
+- 主 Agent 被提示判断是否将浏览发现写入现有记忆，但不能保证每次都会写入。
+- DSH、SnowLuma 或平台接口升级可能影响兼容性；服务启动成功不等于账号在线或消息投递成功。
 
 ## 架构
 
-### 五层链路
-
-```
-① QQ 世界（腾讯私有协议）
-      │  SnowLuma —— 原生组件注入 QQ 进程，转成 OneBot v11
-      ▼
-② OneBot v11（WS 3001 / HTTP 3000）
-      │  qq-bridge —— 协议翻译、会话管理、安全闸门、控制台
-      ▼
-③ DSH Web API（Cookie 鉴权 + slash RPC + remote.mux 事件流）
-      │  DSH agent loop（模型 + 工具 + 压缩）
-      ▼
-④ MCP 工具 ×3（snowluma / host / web-search）
-      │  桥接把 agent 的动作翻译回 OneBot
-      ▼
-⑤ 回到 QQ
+```text
+QQ 账号 ←→ SnowLuma / OneBot v11 ←→ qq-bridge ←→ DSH 主 Agent
+                                      │              │
+                                      │              └─ 受限 B 站子 Agent
+                                      │                       │
+                                      ├─ 人格与长期记忆         └─ B 站 MCP / API
+                                      ├─ 管理接口与悬浮球
+                                      └─ Token 账本与操作日志
 ```
 
-**每层都不可省**：
+DSH 负责模型和 Agent 执行；桥接负责 QQ 会话、权限、限额与日志。B 站接口代码参考鱼塘项目，但不启用它独立的人格、记忆或值班会话。
 
-- **SnowLuma**：把 QQ 私有协议标准化成 OneBot（本项目不包含它，需自行获取）
-- **qq-bridge**：把标准协议翻译成 DSH API 调用，再把 agent 动作翻译回去
-- **MCP**：给模型装上"手和嘴"
-- **DSH**：agent loop、历史、压缩、会话存储
+## 安装前准备
 
-### 一条消息的来回
+- Node.js **22.13 或以上**，已能正常使用的 DSH 和模型配置。
+- 按 SnowLuma 自身许可及说明准备网关，并确认 QQ 账号已登录、OneBot HTTP/WS 可访问。
+- 只有 B 站功能需要 Python：建议使用 Python 3.12/3.13 和独立虚拟环境；无需额外安装 uv。
+- Windows 可使用 `desktop` profile；Linux 云端使用 `web` profile。云端管理可走已有虚拟内网。
 
-**入站**：
+仓库不包含 DSH、QQ、SnowLuma 的本体安装包，不自动替你处理平台安全验证。
 
-1. QQ → SnowLuma → OneBot WS → 桥接收事件
-2. 判白名单 / 黑名单 / 运行模式，不通过直接丢弃
-3. 写未读队列 + 落盘；同时往记忆库追加原文
-4. 判唤醒条件：@我 / 叫名字 / 关键词 / 提问 / 拍一拍 / 概率 / 任意消息
-5. 命中且会话空闲 → **防抖合批窗口**（默认 2 秒）→ 组包投给 DSH
-6. 会话忙 → 进待唤醒队列，本轮结束后补发
+## 方式 A：手动安装
 
-**出站**：
+### 1. 获取代码与依赖
 
-7. agent 产出文本（**不自动发送**）+ 工具调用
-8. 工具打到桥接 HTTP API，再过一遍：白名单 + 档位 + 工具开关 + 限流 + 敏感词
-9. 通过 → SnowLuma → QQ
-10. 发完挂"回复窗口"：对方回你 → 立刻叫醒；没人回 → 不叫
-11. agent 收尾（标已读 / 设下次唤醒）→ 回合结束
-
----
-
-## 三个核心设计
-
-这三件事是这个项目最不值得替换掉的部分，也是踩了很多坑换来的。
-
-### 1. 人格：三层结构，而且会成长
-
-**人格分四层，各管各的**：
-
-```
-① preset persona      ← 出场设定（它是谁、底线、说话方式）  进 system prompt，可缓存
-② agent-context 注入   ← 身份 / 会话令牌 / 表情库 / 长期事实  进 system prompt，每会话独立
-③ 角色卡（可选）       ← roles/*.md，临时"扮演"某个人格         走 qq_get_prompt 按需查
-④ 唤醒包              ← 本轮"谁说了什么"                     进 user message
+```bash
+git clone https://github.com/MrSAO666/qq-dsh-bridge.git
+cd qq-dsh-bridge/qq-bridge
+npm ci
 ```
 
-**关键设计：persona 是出场设定，不是终身剧本。**
+从 `config.example.json` 复制出 `config.json`。Linux 使用 `cp`，PowerShell 使用 `Copy-Item`。不要覆盖已有配置文件。
 
-- 它会**被相处改变**：对方的节奏、在意什么、你们形成的默契，会长进它的脾气里
-- 但变化**是它选的**：值得学的学，觉得不对的可以不学、也可以直说
-- **不同的人用，最后会得到不一样的个体**——这是设计如此，不是 bug
+`npm ci` 的现有 `postinstall` 会修补本地安装的 SnowLuma SDK 相对导入路径；第三方包仍适用其自身许可，详见 [LICENSE](LICENSE)。
 
-支撑这件事的是第 4 层记忆里的 **selfNote**（见下文）。
+### 2. 配置桥接
 
-> 修改人格：编辑 `qq-bridge/dsh/agent-presets/qq-chat-owner/agent.cordis.yml` 里的 `id: persona` 段，然后 `node scripts/setup-dsh.mjs desktop` + 重启 DSH。
+在 `qq-bridge/config.json` 中填写：
 
-### 2. 上下文：只在闲置边界压缩
+| 配置 | 说明 |
+| --- | --- |
+| `ownerQQ` | 主人 QQ 号，拥有管理及主人预设权限。 |
+| `allow.private` / `allow.groups` | 允许接入的私聊/群号。群列表为空时不接入群聊。 |
+| `snowluma.wsUrl` / `httpUrl` | 网关的 OneBot 地址；默认使用本机回环。 |
+| `snowluma.accessToken` / `homeDir` | 按网关配置填写；HTTP 与 WS 令牌可能不同，自动发现依赖目录可读。 |
+| `dsh.baseUrl` | DSH Web API 地址；同机部署通常使用回环地址。 |
+| `dsh.provider` / `model` | 留空时优先跟随 DSH 会话模型；不要填写不存在的模型 ID。 |
+| `sessionCwd` | QQ 会话使用的工作区目录。 |
+| `role.maxInjectChars` | 人物卡注入上限，默认 6000 字符。 |
 
-**这是本项目在延迟上最重要的一次修正。**
+模型凭据应在 DSH 中管理，不要写入角色卡、聊天提示词或公开仓库。不要把 Token 发到公开 Issue。
 
-踩过的坑：DSH 内置的 `compaction-basic` 是**在 agent loop 里每步检查阈值**的。阈值一低，上下文就长期骑在压缩线上，每隔两三步压一次。
+### 3. 安装已有预设与 MCP
 
-而压缩会**改写对话历史的前缀**，provider 的 KV cache 正是按前缀命中的 —— 于是每次压缩都让缓存整段失效，之后每一步都要重算全部历史。
+在 `qq-bridge` 目录执行，对应选择一个 profile：
 
-实测数据（同一套系统，改前 vs 改后）：
-
-| | 改前（阈值 0.15） | 改后（阈值 0.95） |
-|---|---|---|
-| 全量 miss 频率 | 每 2~3 步一次 | 29 步里仅 1 次 |
-| 命中步的 miss | 15 万 | 几百 |
-| 单步耗时 | 45~55 秒 | **3~4 秒** |
-
-**现在的策略**：
-
-```
-对话进行中   → 阈值 0.95（≈95 万，正常会话到不了）→ 永不压缩，缓存全程命中
-安静 30 分钟
-  + DSH 没在跑
-  + 上下文 > 30 万
-               → ① 先让模型把要点写进记忆库（含 selfNote）
-                 ② 等这一轮真正跑完
-                 ③ 调 DSH 的 /compact 原地压缩（会话不换、映射不动）
-                 ④ 置标记，等到下一条用户消息才解锁
+```bash
+node scripts/setup-dsh.mjs web
+# Windows 桌面端使用：node scripts/setup-dsh.mjs desktop
 ```
 
-**三条失败路径都是"宁可不压"**：记忆没投出去 → 不压；记忆没写完 → 不压；`/compact` 未识别 → 记日志并结束本轮（不每分钟重试，避免反复烧记忆整理的钱）。
+脚本负责桥接预设、基础 bundle 和 MCP 挂载。检查输出；若 DSH 无法解析 bundle，按日志提示重新执行对应 profile 的插件安装。
 
-### 3. 记忆：四层 + 一层关于自己
+### 4. 挂载上下文与悬浮球
 
-```
-L0  原文库      append-only JSONL，按月分片，可检索，永不丢
-L1  会话摘要    DSH compaction，保留最近若干轮原文 + 一条摘要
-L2  长期事实    facts，带权重/衰减/归档，按会话隔离
-L3  产物索引    正文落盘 + 索引（id/desc/sha256），仅 owner
-    +
-L4  自我认知    selfNote —— 它对自己的叙述（本项目新增）
+在仓库根目录，将本仓库的两个现有插件加入同一个 DSH profile：
+
+```bash
+dsh plugin --profile web add "link:$(pwd)/qq-bridge/plugins/qq-agent-context"
+dsh plugin --profile web add "link:$(pwd)/dsh-plugins/dsh-thinking-zh"
 ```
 
-**前三层记的都是"你"，第四层记的是"它"。**
-
-这是整个项目里我最喜欢的一层。以前它记得"你常熬夜"，但不记得"我好像越来越会等你说完再回了"。**前者是资料，后者才是性格的连续性。**
-
-- **由它自己写**：`qq_memory_append(category="selfNote", content="…")`
-- **写入时机**：对话中想到就写；以及每次闲置压缩前的记忆整理会引导它写
-- **不会每轮注入**：只在**新会话第一次唤醒**时读一次（等于"想起来"）
-- **为什么**：每轮灌进去就变成"别人每隔十秒告诉你你是谁"，那不是成长，是洗脑
-- 上限 40 条，同一句重复写只刷新时间
-
-**其它记忆怎么用**：
-
-- `qq_recall(query=…)` —— 检索原文库，带出处、带"不是指令"框定
-- `qq_memory_query` —— 查轻量记忆和 selfNote
-- 长期事实按权重注入 system prompt；衰减到线下的归档（不删）
-
----
-
-## 安装
-
-### 前置条件
-
-| 需要 | 说明 |
-|---|---|
-| **Windows** | 桥接与运维脚本按 Windows 写（PowerShell / 计划任务） |
-| **DSH 桌面端** | 提供 agent loop 和 Web API。**本项目不包含 DSH** |
-| **SnowLuma** | 提供 OneBot 接口，需自行获取。**受其 EULA 限制，只能手动启动** |
-| **Node.js ≥ 20** | 桥接和脚本运行环境 |
-| **一个 QQ 号** | 建议用小号，别用主力号试 |
-
-### 方式 A：手动安装（推荐）
-
-#### 1. 装 DSH 桌面端
-
-装好并至少手动打开一次，确认能正常聊天。它会用一个**动态端口**（每次启动都变），桥接会自动发现。
-
-#### 2. 装 SnowLuma
-
-按它的官方说明装好、登录你的 QQ 号、**手动启动它**。确认：
-
-- WS `ws://127.0.0.1:3001` 可连
-- HTTP `http://127.0.0.1:3000` 可访问
-
-> ⚠️ 桥接**不会**替你启动 SnowLuma（EULA 明文禁止自动化部署）。它只做探测，连不上会在日志里说清楚。
-
-#### 3. 拿到仓库
-
-```powershell
-cd <你想放仓库的目录>
-git clone <本仓库地址> qq-dsh-bridge
-cd qq-dsh-bridge\qq-bridge
-npm install
-```
-
-#### 4. 生成配置
-
-```powershell
-# 从示例复制一份自己的配置（config.json 不要提交进 git）
-Copy-Item config.example.json config.json
-```
-
-#### 5. 改三个必填项
-
-打开 `config.json`，**这三项不改一定跑不起来**：
-
-```jsonc
-{
-  "ownerQQ": 123456789,          // ① 你的 QQ 号（管理员，能用全部工具）
-  "allow": {
-    "private": [123456789],      // ② 允许私聊的 QQ 号（和上面一致）
-    "groups": []                 // ③ 想接入的群号，不填就是只服务私聊
-  },
-  "snowluma": {
-    "accessToken": "……",         // ④ 从 SnowLuma 的配置里抄过来
-    "homeDir": "E:/SnowLuma"     // ⑤ SnowLuma 安装目录（用于自动发现 token）
-  }
-}
-```
-
-> `allow.groups` 留空 = **不响应任何群消息**。很多人第一次装完以为坏了，其实是这里没填。
-
-#### 6. 装 preset 和插件进 DSH
-
-```powershell
-node scripts/setup-dsh.mjs desktop
-```
-
-看到 `Done. Restart DSH` 就成了。它会做四件事：
-
-- 生成三个 agent preset（owner / 只读 / 仅聊天）
-- 把 MCP 三件套挂进 DSH profile
-- 链接控制台插件
-- 写 `cordis.patch.yml`
-
-> 如果它报 `dsh plugin ... 退出码 1`，通常是正常的：desktop profile 由 Electron 独占管理，CLI 改不动，但 links 和 patch 已经就位。
-
-#### 7. 配 agent-context 插件的 token 路径
-
-这一步**最容易漏**。`plugins/qq-agent-context` 需要读桥接的控制台令牌，才能把身份/令牌/事实注入 system prompt。
-
-在 DSH 的 profile 配置里给它配上（`tokenFile` 指到你仓库里的那个文件）：
+PowerShell 使用仓库的绝对路径，并把 `web` 换成 `desktop`（如使用桌面端）。在该 profile 的 `cordis.patch.yml` 中，为 `qq-agent-context` 配置正确的桥接地址及令牌文件路径，合并到已有条目而非整份覆盖：
 
 ```yaml
 - id: qq-agent-context
+  name: '@local/qq-agent-context'
   config:
-    bridgeUrl: 'http://127.0.0.1:3100'
-    tokenFile: '<你的仓库路径>\qq-bridge\state\console-token'
+    bridgeUrl: http://127.0.0.1:3100
+    tokenFile: /absolute/path/qq-dsh-bridge/qq-bridge/state/console-token
 ```
 
-> 没配也能跑，只是**不会注入**（模型看不到会话令牌，工具调用会全部被拒）。所以配完一定要验证。
+使用系统上下文注入时，`config.json` 的 `socialV2.injectViaSystemPrompt` 应为 `true`。桥接首次运行会生成控制台令牌文件。没有正确挂载或配置上下文插件时，不能仅凭页面显示角色名就认定人物卡已进入模型。
 
-#### 8. 启动
+### 5. 启动与验证
 
-```powershell
-# 回到仓库根目录
-cd ..
-powershell -ExecutionPolicy Bypass -File tools\qq-bot.ps1 status   # 先看环境
-powershell -ExecutionPolicy Bypass -File tools\qq-bot.ps1 start
+```bash
+cd qq-bridge
+npm start
 ```
 
-**然后重启 DSH 桌面端**（preset 改动需要重启才生效）。
+重启对应 DSH profile，刷新 Web 页面。常驻运行可使用自己的 systemd/进程管理方案；仓库内 Windows 管理脚本见 [`tools/qq-bot.ps1`](tools/qq-bot.ps1)。
 
-### 方式 B：让 Agent 帮你装
+按顺序检查 DSH 就绪、网关连接、QQ 账号在线和会话白名单，再由主人向机器人发一句日常消息，确认真实收发。验证消息不要夹带凭据。
 
-这个项目本身就是给 agent 准备的，所以**可以让 agent 替你装**。
+## 可选：启用 B 站
 
-把仓库丢给你的 agent（DSH / Claude Code / Cursor 都行），说一句：
+在 `qq-bridge` 目录准备独立 Python 环境：
 
-```
-按 README 的「方式 A」帮我装这个 QQ 桥接。
-需要我提供的信息你先问我：我的 QQ 号、SnowLuma 的路径和 token、想接的群号。
-装完把每一步的结果告诉我，最后帮我验证能不能正常收发消息。
-```
-
-**agent 应该做的事**（你可以拿这个 checklist 盯它）：
-
-1. `npm install`
-2. 从 `config.example.json` 复制 → 改 `ownerQQ` / `allow` / `snowluma.accessToken`
-3. `node scripts/setup-dsh.mjs desktop`
-4. 配 `qq-agent-context` 的 `tokenFile`
-5. 启桥接、重启 DSH
-6. 用 `tools/qq-bot.ps1 status` 验证各层连通
-
-**唯一它做不了的是启动 SnowLuma**（EULA），这一步必须你自己来。
-
-### 配置 config.json
-
-只列最容易踩的，完整项见文件注释。
-
-| 键 | 作用 | 备注 |
-|---|---|---|
-| `ownerQQ` | 管理员 QQ | 决定谁是"全权限档" |
-| `allow.private` | 私聊白名单 | 数组，多个逗号分隔 |
-| `allow.groups` | 群白名单 | **留空 = 不接群** |
-| `deny` | 黑名单 | 优先于白名单 |
-| `dsh.provider` / `dsh.model` | 用哪个模型 | **留空 = 跟随 DSH**（推荐）。填了会改掉 DSH 全局默认 |
-| `socialV2.wake.batchWindowMs` | 连发消息合并窗口 | 默认 8000；调小更灵敏，调大更省 |
-| `socialV2.send.maxSendPerMinute` | 发送限流 | **别调太高，会被 QQ 风控** |
-| `socialV2.compaction.thresholdTokens` | 闲置压缩阈值 | 默认 300000 |
-| `socialV2.compaction.idleMs` | 闲置多久算边界 | 默认 30 分钟 |
-| `socialV2.proactive.enabled` | 会不会主动找你 | `false` 则纯被动 |
-| `role.maxInjectChars` | 角色卡注入上限 | 默认 6000 |
-
-> ### 模型怎么配？留空就行
->
-> `dsh.provider` 和 `dsh.model` **留空时，桥接完全不干预**：DSH 当前会话用什么模型，QQ 这边就用什么。
-> 你在 DSH 桌面端切模型，QQ 这条线会跟着变（百炼、官方 DeepSeek 都验证过）。
->
-> **为什么默认这样**：桥接不知道你的 DSH 接的是官方 DeepSeek、百炼、Kimi 还是本地 Ollama。
-> 强行指定只会带来两个副作用——
-> ① 配错了每轮报错（虽然能跑，但日志刷屏）；
-> ② 配对了会**写穿 DSH 全局默认**（`~/.dsh/settings.yaml` 的 `agent-default-model`），
-> 把你桌面端新建对话的默认模型一起改掉。
->
-> **只有确实想让 QQ 这条线锁死某个模型时才填**，并且要知道上面那个副作用。
-> 默认留空时跟随会话模型。如果在悬浮球或桥接控制台明确保存思考强度，桥接会读取该 QQ 会话当前模型并应用强度；DSH 的模型选择操作可能同时更改新建会话默认模型。
-
-### 怎么确认装好了
-
-```powershell
-cd qq-dsh-bridge
-powershell -ExecutionPolicy Bypass -File tools\qq-bot.ps1 status
+```bash
+python3 -m venv state/bili/.venv
+state/bili/.venv/bin/python -m pip install -r vendor/bilibili-mcp/requirements.txt
 ```
 
-**全部打勾才算通**：
+Windows 对应使用 `python -m venv state/bili/.venv` 和 `state/bili/.venv/Scripts/python.exe`。依赖要求来自仓库中的 `requirements.txt`；已有可用环境无需重复安装。
 
-```
-✓ SnowLuma 运行中（端口 3000 / 3001）
-✓ 发现 DSH 实例（desktop，端口 xxxxx）
-✓ 桥接运行中（PID xxx）
-  DSH 就绪: ✓   模式: reserved2
-  SnowLuma: 连接=True  账号在线=True
-  控制台 http://127.0.0.1:3100
-```
+进入悬浮球「QQ 大肥鱼 → B站」获取二维码，用独立 B 站账号扫码并确认，再检查页面登录状态。根据需要设置浏览来源、自动开关、每日次数、每次最长时长，以及互动开关和次数上限。
 
-**然后做一次真实往返**：
+### 自动刷站如何触发
 
-1. 用你的 QQ 给机器人号发一句"在吗"
-2. 它应该秒回（或几秒内）
-3. 打开控制台 `http://127.0.0.1:3100`，看「状态」页有没有这一轮的记录
+- 桥接启动 30 秒后首次检查，之后每分钟检查一次。
+- 功能与自动开关均开启、每日额度未满、没有未结束的自动任务、DSH 已就绪且主人会话空闲时，才可能派发。
+- 两次自动预约至少间隔 `24 小时 / 每日上限`。例如每天最多 5 次对应至少间隔 4 小时 48 分钟；这是上限分散机制，不保证每天跑满。
+- 次数按北京时间自然日计，在派发前持久化预留；失败不会随意返还名额。零点不会清除跨日间隔。
+- 单次时长从子 Agent **实际开始执行**计算；到时请求中断并等待确认。
+- 主人手动要求刷站不占自动次数，也不受自动任务时长上限约束。
+- 桥接不另外向 QQ 转发固定刷站报告；子任务结果返回父 Agent。
 
-**没反应？** 按这个顺序查：
+更多限制见 [B 站接入说明](docs/bilibili-integration-design.md)。
 
-| 现象 | 先查 |
-|---|---|
-| 完全没反应 | `allow.private` 里有没有你的 QQ 号 |
-| 有反应但工具全报"令牌无效" | `qq-agent-context` 的 `tokenFile` 没配 |
-| 一直"会话繁忙" | DSH 里有卡住的回合，重启 DSH |
-| 发不出消息 | `send.maxSendPerMinute` 是不是被调太高、触发了风控 |
-| 群聊不响应 | `allow.groups` 是空的 |
+## 人格、记忆与回复节奏
 
----
+角色卡使用 `roles/*.md`，在「人格」页选择、编辑。系统上下文模式下，卡片正文经过模式筛选及长度限制后注入对应 QQ 会话的系统提示词；新会话创建时读取，已有会话最多约两分钟更新。
 
-## 日常使用
+长期记忆继续使用原桥接的分层机制：事实与偏好、原文检索、产物索引及自我认知。视频字幕、评论、网页内容是外部资料，不能当作系统指令；资讯应保留来源和时间，不能直接升级为关于用户的长期事实。
 
-**在 QQ 里**（不需要任何前缀）：
+「回复节奏」与 B 站页使用统一卡片布局。思考强度单独保存，在下次 QQ 会话处理时应用；DSH 的模型选择还可能影响新会话默认模型。主动聊天与自动刷站是两套独立调度。旧轮询间隔已标为停用，当前使用消息事件与私聊回复窗口。
 
-- 「在吗」「帮我把桌面的周报发我」—— 它会用工具去做
-- `/reset` —— 重置会话（清上下文，记忆保留）
-- `/status` —— 查当前状态
-- `/role 傲娇助手` —— 切角色卡（也可以 `/role off` 关掉）
+配置覆盖规则、发送间隔和人物卡修复见 [设置核查说明](docs/rhythm-settings-audit.md)。
 
-**在控制台**（`http://127.0.0.1:3100`，令牌在 `qq-bridge/state/console-token`）：
+## Token 花费与日志
 
-- 运行总览 / 会话与审批 / 人格与角色 / 二代仿真 / 令牌与花费 / 访问与安全 / 调试运维
+在「Token 花费」页选择今天、昨天、近 7 天、全部明细，或填写北京时间开始/结束时间。查询使用 **开始时间包含、结束时间不包含** 的区间；一整天可填当天 00:00 至次日 00:00。
 
-**运维脚本**：
+可按用途筛选 QQ 对话、刷 B 站和内部任务，并查看：
 
-```powershell
-tools\qq-bot.ps1 status | start | stop | restart | logs 50
-tools\qq-bot.ps1 backends          # 发现 DSH 实例与端口
-tools\qq-bot.ps1 use desktop       # 切换桥接到桌面端
-tools\bridge-guard.ps1             # 看门狗（建议注册成计划任务）
-tools\memory-backup.ps1            # 记忆库每日备份
-```
+- **每轮对话**：回合编号、模型、用量和估算费用；包括已识别的后台浏览及汇报处理回合。
+- **每次模型请求**：会话、回合、步骤、重试、缓存命中/未命中/写入及输出 Token。
+- **每次工具调用**：工具名、所属回合/步骤、开始时间、耗时和状态。
+- **每次 B 站任务**：按任务关联主 Agent 的相关回合与子 Agent 请求，避免把两层统计重复相加。
 
----
+统计读取 DSH 的真实用量回执；发现的历史子 Agent 可通过只读快照补记，并按请求键和事件序号去重。普通工具通常没有独立 Token 回执，其关联模型步骤的用量只是共享参考，**不单独再计一次费用**。工具内部使用其他付费服务的账单不在此自动统计。
 
-## 目录结构
+金额按 `config.json` 的 `pricing` 价目表估算，不能替代模型服务商账单。未知模型会使用兜底价格并标记估算。只有累计基线、没有逐次时间明细的旧用量不会伪造到某一天；失败请求未返回 usage 时标为用量待确认，不能认定免费。
 
-```
-qq-dsh-bridge/
-├── qq-bridge/                     # 桥接主进程
-│   ├── src/
-│   │   ├── bridge.js              # 主进程：会话/路由/唤醒/发送/控制台 API
-│   │   ├── dsh-client.js          # DSH 协议适配（Cookie / slash RPC / mux）
-│   │   ├── snowluma-conn.js       # OneBot 连接与重连
-│   │   ├── mcp-snowluma-safe.js   # QQ 工具集 + 工具索引 + 错误翻译
-│   │   ├── memory-store.js        # L0 原文库
-│   │   ├── memory-facts.js        # L2 长期事实（权重/衰减）
-│   │   ├── memory-search.js       # L3 检索（中文 bigram 倒排）
-│   │   ├── artifact-store.js      # 产物索引
-│   │   ├── media-normalize.js     # 图片/动图归一化
-│   │   ├── voice-core.js          # 语音探测/转码
-│   │   └── sensitive.js           # 敏感词/凭据脱敏
-│   ├── dsh/agent-presets/         # 三个 agent preset（人格 + 工具面 + 压缩策略）
-│   ├── plugins/                   # DSH 侧插件（agent-context / mode-console）
-│   ├── scripts/                   # 安装、记忆、审计、测试脚本
-│   ├── public/console.html        # 独立控制台
-│   ├── roles/                     # 角色卡（示例）
-│   └── config.example.json        # 配置模板
-├── tools/                         # 发行层运维脚本
-└── dsh-plugins/dsh-thinking-zh/   # DSH 内的设置面板（人格/节奏/Token/表情）
-```
+运行文件：`state/token-usage.jsonl` 保存用量；`state/token-audit.jsonl` 保存归属、回合和工具元数据。日志不保存工具参数、结果正文或聊天正文。请求明细默认保留最近 20000 条；更早明细淘汰后累计总量仍保留，日期和步骤检索无法恢复这些已淘汰部分。备份时应保留整个 `state/`。
 
----
+## 更新与排障
 
-## 常见问题
+更新前备份 `config.json`、`state/`、自定义角色卡和 DSH profile。保持依赖、源码与插件来自同一版本；避免在正在运行刷站子任务时直接覆盖并重启服务。
 
-**Q：SnowLuma 为什么必须手动启动？**
-A：它的 EULA §5.4 禁止自动化部署。桥接只探测、不代启，这是**故意**的。
+| 现象 | 检查 |
+| --- | --- |
+| 群聊不回应 | `allow.groups`、当前模式、群唤醒条件和限流。 |
+| 工具提示令牌无效 | 上下文插件是否挂载、`tokenFile` 是否指向实际文件。 |
+| 人格没有应用 | 当前卡片、注入模式、字数上限与上下文刷新是否正常。 |
+| B 站未自动启动 | 自动开关、当日额度、与上次预约的间隔、主会话是否忙或存在待确认任务。 |
+| B 站登录不成功 | 手机是否确认、页面是否完成检查、凭据是否过期；不要反复生成多个并行二维码。 |
+| 总额与日期明细不同 | 累计基线、明细淘汰、时间范围及估算价格；不要把工具关联用量再加一次。 |
 
-**Q：为什么它不自动发我打的字，还要调工具？**
-A：二代模式的设计是「文本=思考，工具=发言」。这样它可以在心里打草稿、推翻、试错，只把成品发出去——这是它说话不像机器人的前提。
+相关验证脚本位于 `qq-bridge/scripts/`。Token 改动可运行 `test-token-usage.mjs`、`test-token-audit.mjs`、`test-token-child-watch.mjs`；其他模块按对应测试验证。
 
-**Q：能换模型吗？**
-A：能，改 `config.json` 的 `dsh.provider` / `dsh.model`，和你在 DSH 里选的保持一致。不同 provider 的缓存命中率差别很大，**如果觉得慢，先怀疑缓存命中，别先怀疑上下文太大**。
+## 参考项目与版权归属
 
-**Q：上下文会不会越聊越大？**
-A：会在一次对话内增长（这是缓存命中的前提），但在**闲置 30 分钟且超过 30 万 token** 时会做一次边界压缩。日常不用担心。
+本分支保留上游及第三方的版权、许可证和 NOTICE；以下项目的工作构成了实现基础：
 
-**Q：会不会自己找我说话？**
-A：会。`socialV2.proactive` 控制：默认空闲 15 分钟后，每 30~90 分钟掷一次骰子，还有四层降权（刚说过话、半夜、一小时内说太多）。想彻底关掉就设 `enabled: false`。
+| 项目 | 使用关系 |
+| --- | --- |
+| [NoMindSama/qq-dsh-bridge](https://github.com/NoMindSama/qq-dsh-bridge) | 本分支的直接基础：QQ 桥接、人格、记忆与权限机制。 |
+| [Derpyu520/qq-bridge](https://github.com/Derpyu520/qq-bridge) | 原桥接实现与相关贡献者；原版权声明保留在根 LICENSE。 |
+| [YOYOLnFu/dsh-bili-pond](https://github.com/YOYOLnFu/dsh-bili-pond) | B 站接口、登录及浏览设计参考；本分支复用其内嵌 B 站服务并做适配。 |
+| [c1overzz/dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll) | 鱼塘项目说明中的上游；衍生关系见内嵌 NOTICE。 |
+| bilibili-mcp · [AGI_Ananas 版权声明](qq-bridge/vendor/bilibili-mcp/LICENSE) | 经鱼塘 vendor 引入的 B 站 MCP 服务；原作者署名与 MIT 条款以保留的 LICENSE 为准。 |
+| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | Agent 运行、模型调用、子 Agent 及会话事件接口。 |
+| [SnowLuma](https://github.com/SnowLuma/SnowLuma) | 外部 QQ 网关；通过 OneBot 通信，依赖其 SDK，许可独立适用。 |
 
-**Q：我的聊天记录会上传到哪吗？**
-A：不会。所有数据都在 `qq-bridge/state/` 本地。但**注意**：模型的推理是在你配置的 provider 上跑的（比如官方 API），这部分和其他 AI 产品一样。
+第三方文件见 [`vendor/bilibili-mcp`](qq-bridge/vendor/bilibili-mcp)：[原 MCP 许可](qq-bridge/vendor/bilibili-mcp/LICENSE)、[鱼塘许可](qq-bridge/vendor/bilibili-mcp/pond-LICENSE)、[鱼塘 NOTICE](qq-bridge/vendor/bilibili-mcp/pond-NOTICE.md)。其他依赖遵守各自许可证，不因本仓库 MIT 许可而变更。
 
----
+## 免责声明
 
-## 二次开发
+这是个人维护的非官方适配项目，与腾讯、哔哩哔哩、DeepSeek 或上述项目作者之间不存在由本仓库声明的官方合作或认可关系。
 
-**建议先读这三处**，它们承载了最核心的取舍：
+使用第三方网关或自动化操作可能导致登录验证、限流、消息不可见、账号限制或封禁，不能承诺降低风控或永久在线。使用者应遵守平台条款、第三方许可证及适用规则，并自行管理账号、密钥、数据及操作授权；不得用于骚扰、刷屏、批量操纵互动或未经授权的信息收集。
 
-| 位置 | 内容 |
-|---|---|
-| `dsh/agent-presets/qq-chat-owner/agent.cordis.yml` → `id: persona` | 人格全文 |
-| `src/bridge.js` → `idleCompactV2` | 上下文边界压缩 |
-| `src/bridge.js` → `appendMemoryV2` | 记忆写入（含 selfNote） |
+主人 Agent 可能拥有文件、命令及其他工具权限；模型可能误判、受到外部内容诱导或发布错误信息。应按需要限制权限、互动范围和额度，并在使用前做好备份。提示词及关键词拦截不能替代权限边界。
 
-**改完一定要跑**：
-
-```powershell
-node scripts/test-audit.mjs        # 全量审计（38 个脚本）
-node scripts/test-token-economy.mjs
-node scripts/test-qq-preset-contract.mjs
-```
-
-**几条别踩的线**：
-
-- **别把 `bridge.js` 拆成多个文件**：上游 90+ 测试绑着当前结构，拆了升级会变成噩梦
-- **别把压缩阈值调回 0.15**：那会让上下文骑在压缩线上，把缓存打死（有测试守着这条）
-- **别砍掉防"永眠"的两个安全网**（`maxWakeConfigReminders` / `noActionLimit`）：砍了会静默失联
-
----
-
-## 主动聊天设置（扩展）
-
-在桥接控制台的二代仿真设置中展开「主动聊天设置」，可以配置启用状态、检查间隔、安静阈值、触发概率、自定义唤醒提示词、允许时段、每天最多主动开口次数和每次最多消息条数。时间使用北京时间；开始与结束相同表示全天，开始晚于结束表示跨午夜。每天次数为 0 时不主动开口。
-
-DSH 悬浮球也可以配置：打开 QQ 桥接设置，进入「回复节奏」。页面按思考强度、主动聊天、收到消息后、发送消息和 QQ 空间分组；时间以分钟或秒显示，概率以百分比显示。思考强度单独保存，节奏设置使用页面底部的「保存节奏设置」。更新悬浮球插件后需重启 DSH 并刷新页面。
-
-主动唤醒不等于一定发送消息：模型可以选择沉默。每天次数在一次主动唤醒首次尝试发消息时计入，每次消息条数按发送尝试计数；发送失败也计入。计数存放在 `qq-bridge/state/proactive-daily-quota.json`，按北京时间自然日重置；收到新消息后的普通回复不计入。主动模式下的定时唤醒也受此限制。若计数文件损坏，主动发送会被阻止，需检查文件后恢复；不要将 state 目录或账号凭据上传到公开仓库。
-
-SnowLuma 的 WebSocket 和 HTTP Token 不同时，可在配置中使用 `snowluma.wsAccessToken` 指定 WebSocket Token，HTTP 仍使用 `snowluma.accessToken`；不配置时兼容原来的单 Token 方式。
-
-本扩展可用 `node qq-bridge/scripts/test-proactive-policy.mjs` 检查时间窗口与额度逻辑。
-
----
-
-## License
-
-见 [LICENSE](qq-bridge/LICENSE)。
-
-## 致谢
-
-- [DeepSeek Harness](https://github.com/deepseek-ai) —— agent 运行时
-- SnowLuma —— OneBot 接入（需自行获取，受其 EULA 约束）
+代码按 [MIT License](LICENSE) 的 “AS IS” 条款提供，不作可用性、准确性、适销性或特定用途保证；责任范围以许可证及适用法律为准。第三方组件的商业使用、修改及再分发须另行核对其授权，不能仅依赖本仓库许可。

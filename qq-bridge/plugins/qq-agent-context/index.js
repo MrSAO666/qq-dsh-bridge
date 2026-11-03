@@ -122,7 +122,9 @@ export function apply(ctx, config) {
   // 定时刷新：令牌轮换、表情库变化、长期记忆每天整理，都靠它带进下一轮。
   const timer = setInterval(() => {
     for (const agent of ctx.agents.list()) {
-      if (fibers.has(String(agent.id))) void refresh(agent);
+      // A bridge outage during plugin startup must not permanently skip an
+      // existing QQ agent. Retry discovery as well as updating installed ones.
+      void refresh(agent).then((data) => { if (data) install(agent); });
     }
   }, REFRESH_MS);
   if (typeof timer.unref === 'function') timer.unref();

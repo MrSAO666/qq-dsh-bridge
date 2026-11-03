@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createBiliAutomation } from '../src/bili-automation.mjs';
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bili-auto-'));let time=Date.parse('2026-11-03T00:00:00Z'), watches=[], prompts=[], reports=[];
+const config={enabled:true,autoEnabled:true,dailyRuns:3,durationMinutes:20,sources:{keywords:['AI'],followUids:[],recommendations:false}};
+const opts={stateFile:path.join(dir,'run.json'),now:()=>time,getConfig:()=>config,getParent:async()=> 'parent',api:{callUnary:async()=>({result:{ok:true}})},dispatchPrompt:async(id,text)=>{prompts.push({id,text});return {ok:true}},onReport:r=>reports.push(r),watch:o=>{watches.push(o);return {ready:Promise.resolve(),stop(){}}}};
+try {
+  const auto=createBiliAutomation(opts);
+  await auto.tick();
+  let active=auto.snapshot().active;
+  assert.equal(active.status,'reserved');assert.equal(active.parentSessionId,'parent');assert.match(prompts[0].text,new RegExp('bili-'+active.id));
+  time+=30000;watches[0].onStart({childId:'child',startedAt:time});
+  active=auto.snapshot().active;assert.equal(active.deadlineAt,time+20*60000);
+  watches[0].onEnd({childId:'child',text:'摘要 BV1abcdefgh1'});
+  assert.equal(auto.snapshot().active,null);assert.equal(reports.length,1);
+  await auto.tick();assert.equal(prompts.length,1,'任务结束后不能立即消耗下一次额度');
+  time+=8*3600000;await auto.tick();assert.equal(prompts.length,2);
+  auto.dispose();
+  const restored=createBiliAutomation(opts);await restored.tick();assert.equal(watches.length,3,'重启后恢复监听保留中的任务');
+  const reserved=restored.snapshot().active;
+  watches[2].onStart({childId:'second',startedAt:time});
+  watches[2].onEnd({childId:'second',text:'第二次摘要'});
+  assert.equal(restored.snapshot().counts['2026-11-03'],2);assert.equal(restored.snapshot().active,null);
+  restored.dispose();
+  console.log('B站自动调度测试通过');
+}finally{fs.rmSync(dir,{recursive:true,force:true})}

@@ -36,6 +36,7 @@ export const ROUTES = {
   status: routePath,
   toggle: `${routePath}/toggle`,
   settings: `${routePath}/settings`,
+  bili: `${routePath}/bili`,
   persona: `${routePath}/persona`,
   tokens: `${routePath}/tokens`,
   stickers: `${routePath}/stickers`,
@@ -44,6 +45,21 @@ export const ROUTES = {
   access: `${routePath}/access`,
   backend: `${routePath}/backend`,
   diagnose: `${routePath}/diagnose`,
+}
+
+async function handleBili(req, res) {
+  const env = bridgeEnv()
+  if (!env.ok) return json(res, 200, { ok: false, error: env.error })
+  if ((req.method || 'GET') === 'GET') {
+    const requestUrl = new URL(req.url || '/', 'http://127.0.0.1')
+    const r = await bridgeApi(env, requestUrl.searchParams.get('view') === 'logs' ? '/api/bili/logs' : '/api/bili/config')
+    return json(res, 200, r.ok ? r.data : { ok: false, error: r.error || r.data?.error || 'B站配置不可用' })
+  }
+  const body = await readJsonBody(req)
+  const target = body.action === 'save' ? '/api/bili/config' : '/api/bili/login'
+  const payload = body.action === 'save' ? { config: body.config } : { action: body.action }
+  const r = await bridgeApi(env, target, { method: 'POST', body: payload, timeoutMs: 60000 })
+  return json(res, 200, r.ok ? r.data : { ok: false, error: r.error || r.data?.error || 'B站操作失败' })
 }
 
 const JSON_HEADERS = {
@@ -283,6 +299,7 @@ async function handleSettings(req, res) {
       ok: true,
       rhythm: {
         autoReplyCheckMs: full.autoReplyCheckMs,
+        replyCheck: full.replyCheck ?? {},
         send: full.send ?? {},
         wait: full.wait ?? {},
         wake: full.wake ?? {},
@@ -310,7 +327,7 @@ async function handleSettings(req, res) {
   const next = { ...full, ...(body.rhythm || {}) }
   if (body.paused !== undefined) next.paused = body.paused === true
   const saved = await bridgeApi(env, '/api/socialV2/config', { method: 'POST', body: next })
-  if (!saved.ok) return json(res, 200, { ok: false, error: saved.error || `HTTP ${saved.status}` })
+  if (!saved.ok || saved.data?.ok === false) return json(res, 200, { ok: false, error: saved.error || saved.data?.error || `HTTP ${saved.status}` })
   return json(res, 200, { ok: true, saved: saved.data })
 }
 
@@ -373,8 +390,11 @@ async function handleTokens(req, res) {
   const env = bridgeEnv()
   if (!env.ok) return json(res, 200, { ok: false, error: env.error })
   const url = new URL(req.url || '/', 'http://127.0.0.1')
-  const window = url.searchParams.get('window') || 'today'
-  const r = await bridgeApi(env, `/api/tokens/summary?window=${encodeURIComponent(window)}`)
+  const query = new URLSearchParams()
+  for (const key of ['window', 'from', 'to', 'view', 'category', 'key', 'limit', 'offset']) {
+    if (url.searchParams.has(key)) query.set(key, url.searchParams.get(key))
+  }
+  const r = await bridgeApi(env, `/api/tokens/report?${query}`)
   return json(res, 200, r.ok ? { ok: true, ...(r.data || {}) } : { ok: false, error: r.error || `HTTP ${r.status}` })
 }
 
@@ -721,6 +741,7 @@ export function mount(ctx) {
     [ROUTES.status, handleStatus],
     [ROUTES.toggle, handleToggle],
     [ROUTES.settings, handleSettings],
+    [ROUTES.bili, handleBili],
     [ROUTES.persona, handlePersona],
     [ROUTES.tokens, handleTokens],
     [ROUTES.stickers, handleStickers],

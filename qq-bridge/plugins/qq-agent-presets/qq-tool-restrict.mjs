@@ -129,6 +129,8 @@ const LOCAL_EXECUTION_TOOLS = [
   // 派生 agent 与编排（都能间接拿到 shell）
   'subagent', 'subagent_fork', 'list_subagent_models',
   'send_message', 'interrupt_agent', 'list_agents',
+  'mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video',
+  'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment',
   'workflow', 'ralph',
   // 插件/cordis 运行期检查：能读宿主状态（0.1.7 起只有这两个名字）
   'cordis_inspect_list', 'cordis_inspect_query',
@@ -284,7 +286,7 @@ const SAFE_EXACT = new Set([
 //    所以这里按"可授予与否"把能力拆开，并且方向是 fail-safe：
 //    往 KNOWN_DANGEROUS_GLOBAL_TOOLS 加新名字会自动落进 NEVER_GRANTED，
 //    只有显式登记进 OWNER_GRANTABLE_TOOL_NAMES 才可能在 open 模式下放行。
-export const MODES = Object.freeze({ STRICT: 'strict', READONLY: 'readonly', OPEN: 'open' })
+export const MODES = Object.freeze({ STRICT: 'strict', READONLY: 'readonly', OPEN: 'open', BILI: 'bili' })
 
 /** open（owner）模式下**允许**放行的本地能力：与 qq-chat-owner 实际挂载的行一一对应。 */
 const OWNER_GRANTABLE_TOOL_NAMES = new Set([
@@ -294,6 +296,11 @@ const OWNER_GRANTABLE_TOOL_NAMES = new Set([
   'glob', 'grep',
   // dsh-tool-pwsh（Windows）/ dsh-tool-bash（其它平台）
   'pwsh', 'bash',
+  // 仅 owner 私聊可调用内置子 Agent；其他会话仍使用 strict/readonly 白名单。
+  'subagent', 'subagent_fork', 'list_subagent_models',
+  'send_message', 'interrupt_agent', 'list_agents',
+  'mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video',
+  'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment',
 ])
 
 /**
@@ -309,6 +316,7 @@ export const READONLY_TOOL_NAMES = Object.freeze(['read', 'read_image', 'glob', 
 
 const NEVER_GRANTED_SET = new Set(NEVER_GRANTED_TOOL_NAMES)
 const READONLY_TOOL_SET = new Set(READONLY_TOOL_NAMES)
+const OWNER_BILI_TOOLS = new Set(['mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video', 'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment'])
 
 /**
  * 归一化行级 `config.mode`。
@@ -321,7 +329,7 @@ const READONLY_TOOL_SET = new Set(READONLY_TOOL_NAMES)
 export function normalizeRestrictMode(raw) {
   const value = String(raw ?? '').trim().toLowerCase()
   if (value === '') return MODES.STRICT
-  if (value === MODES.OPEN || value === MODES.READONLY || value === MODES.STRICT) return value
+  if (value === MODES.OPEN || value === MODES.READONLY || value === MODES.STRICT || value === MODES.BILI) return value
   console.error(
     `[qq-tool-restrict] 未知 mode ${JSON.stringify(raw)}（只支持 ${Object.values(MODES).join(' / ')}），已按 strict 处理`,
   )
@@ -344,6 +352,7 @@ export function toolGuardReason(mode, exec) {
     }
     return undefined
   }
+  if (mode === MODES.BILI) return OWNER_BILI_TOOLS.has(name) ? undefined : `工具 "${name}" 不在刷站子任务白名单内`
   if (SAFE_EXACT.has(name)) return
   if (SAFE_PREFIXES.some((prefix) => name.startsWith(prefix))) return
   if (mode === MODES.READONLY && READONLY_TOOL_SET.has(name)) return
@@ -432,7 +441,9 @@ export function apply(ctx, config = {}) {
     return ok
   }
 
-  const firstOk = attempt(RESTRICTED_TOOL_NAMES)
+  // B站只读工具由 profile 全局注册：owner 会话必须保留可见，其他档隐藏。
+  const hiddenNames = mode === MODES.OPEN || mode === MODES.BILI ? RESTRICTED_TOOL_NAMES.filter(name => !OWNER_BILI_TOOLS.has(name)) : RESTRICTED_TOOL_NAMES
+  const firstOk = attempt(hiddenNames)
   const firstFailed = failed.slice()
   failed.length = 0
 

@@ -22,6 +22,13 @@ import * as voiceLib from '../src/send-voice-lib.js';
 import * as presetPrompt from '../src/preset-prompt.js';
 import * as sendFileLib from '../src/send-file-lib.js';
 import * as stateAcl from '../src/state-acl.mjs';
+import * as roleCards from '../src/role-card.js';
+import * as proactivePolicy from '../src/proactive-policy.mjs';
+import { createMediaFetchCache } from '../src/media-fetch-cache.mjs';
+import { selectForInjection as selectFactsForInjection } from '../src/memory-facts.js';
+import yaml from 'js-yaml';
+import { createTokenAudit } from '../src/token-audit.mjs';
+import { createTokenChildObserver } from '../src/token-child-watch.mjs';
 import { unwrap, createTurnCollector } from '../src/dsh-client.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -151,6 +158,8 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     sendToQQ, sendStickerV2, handleIncoming, startConsoleServer, cfg, state, api, promptQueues,
     getSocialV2State, appendSocialV2Message, recordSentMessagesV2,
     buildWakePromptV2, buildWakeSnapshotV2, sendWakePromptV2, socialV2,
+    computeGapsV2, armReplyWindowV2, scheduleReplyCheckV2,
+    tokenLedger, tokenAudit, recordSessionSnapshot, recordSessionUsage, tokenChildObserver,
     syncStickerLibrary, listStickersForV2, getStickerImageData,
     refreshMode, modeAllowed, trackTurnEvent, replayPendingWakeReasonsV2,
     // 三档权限分级：档位判定与「该用哪个 preset」都暴露出来，方便直接断言（不必真建会话）。
@@ -179,7 +188,7 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
   bot.onPrivateMessage(async (event) => {`);
   const timers = new Set();
   const context = vm.createContext({
-    fs, os, path, http, crypto, fileURLToPath, URL, Buffer, AbortSignal, console: { log() {}, error() {} },
+    fs, os, path, http, crypto, fileURLToPath, URL, Buffer, AbortSignal, structuredClone, yaml, console: { log() {}, error() {} },
     fetch: fakeFetch,
     // 锁文件探测用（bridge.js 顶层的 consolePortInUse）；
     // 固定桩掉：测试不应该真去 netstat 宿主机。
@@ -194,6 +203,7 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     discoverDshLaunchToken: () => '', unwrap, createTurnCollector,
     ...markdown, ...sensitive, ...wait, ...safeFetch, ...forward, ...slang, ...sticker,
     ...modelPrices, ...tokenLedger, ...voiceLib, ...stateAcl, ...presetPrompt, ...sendFileLib,
+    ...roleCards, ...proactivePolicy, createMediaFetchCache, selectFactsForInjection, createTokenAudit, createTokenChildObserver,
     // 桥接的出图出口会调归一化（体积/动图抽帧）：VM 里必须能拿到这几个函数。
     normalizeImageForModel: mediaNormalize.normalizeImageForModel,
     sniffImage: mediaNormalize.sniffImage,

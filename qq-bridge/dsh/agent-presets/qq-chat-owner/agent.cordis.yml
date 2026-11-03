@@ -229,11 +229,29 @@
   config:
     allowParallelInProgress: true
 
+# 仅主人私聊挂载内置子 Agent；服务与 provider 由 DSH base 提供。
+- id: delegation
+  name: cordis:group
+  group: true
+  isolate:
+    workflowEngine: true
+  config:
+    - id: tool-subagent-control
+      name: '@deepseek-ai/dsh-tool-subagent-control'
+    - id: tool-subagent-list-agents
+      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+    - id: tool-subagent
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config: { provider: spawn, toolName: subagent, allowedAgentPresets: [qq-bili-worker] }
+    - id: tool-subagent-fork
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config: { provider: fork, toolName: subagent_fork }
+
 # ── QQ 安全硬边界 ────────────────────────────────────────────────────────────
 # 隐藏开发/管理工具（三档共用），并在执行期用白名单拒绝任何越权工具调用。
 # config.mode = 'open'：owner 档 —— 放行可授予的本地能力（read/write/edit/glob/
 # grep/pwsh/bash），但**仍然拒绝**宿主/开发/装载权类工具（dev_*、plugin_manager、
-# session_search、schedule_*、subagent 家族……）。名单由 qq-tool-restrict.mjs 的
+# session_search、schedule_* 等）。子 Agent 仅在主人会话中开放。名单由 qq-tool-restrict.mjs 的
 # NEVER_GRANTED_TOOL_NAMES 给出，与这里挂载的工具行一一对应。
 
 - id: qq-tool-restrict

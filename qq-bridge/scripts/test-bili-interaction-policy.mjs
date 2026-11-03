@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { reserveBiliInteraction } from '../src/bili-interaction-policy.mjs';
+const now = Date.parse('2026-11-03T02:00:00Z');
+const cfg = { interactions: { likeEnabled: true, likeDailyLimit: 1, commentEnabled: true, commentDailyLimit: 1, mentionEnabled: false, mentionUids: [] } };
+let state = { version: 1, counts: {} };
+assert.throws(() => reserveBiliInteraction(state, { kind: 'comment', config: cfg, text: '你好 @someone', now }), /未授权/);
+assert.throws(() => reserveBiliInteraction(state, { kind: 'comment', config: cfg, text: '你好', mentionUids: ['1'], now }), /未启用/);
+state = reserveBiliInteraction(state, { kind: 'like', config: cfg, now });
+assert.throws(() => reserveBiliInteraction(state, { kind: 'like', config: cfg, now }), /用完/);
+cfg.interactions.mentionEnabled = true; cfg.interactions.mentionUids = ['1'];
+assert.throws(() => reserveBiliInteraction(state, { kind: 'comment', config: cfg, text: '你好', mentionUids: ['2'], now }), /不在名单/);
+state = reserveBiliInteraction(state, { kind: 'comment', config: cfg, text: '你好', mentionUids: ['1'], now });
+assert.equal(state.counts['2026-11-03'].comment, 1);
+console.log('B站互动策略测试通过');

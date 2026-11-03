@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { createBiliChildEventTracker } from '../src/bili-child-events.mjs';
+const seen=[]; const tracker=createBiliChildEventTracker({onStart:time=>seen.push(['start',time]),onEnd:time=>seen.push(['end',time])});
+tracker.receive({type:'snapshot',records:[{type:'subagent/descriptor',seq:0,time:'2026-11-03T00:00:00Z'},{type:'turn/start',seq:1,time:'2026-11-03T00:00:10Z'}]});
+tracker.receive({type:'event',event:{type:'turn/start',seq:1,time:'2026-11-03T00:00:10Z'}});
+tracker.receive({type:'event',event:{type:'turn/end',seq:2,time:'2026-11-03T00:00:20Z'}});
+assert.deepEqual(seen,[['start',Date.parse('2026-11-03T00:00:10Z')],['end',Date.parse('2026-11-03T00:00:20Z')]]);
+assert.equal(tracker.status().ended,true);
+const missing=createBiliChildEventTracker({onStart:()=>{},onEnd:()=>{}});
+assert.throws(()=>missing.receive({type:'event',event:{type:'turn/start',seq:1}}),/缺少有效时间/);
+console.log('子 Agent 快照与事件解析通过');

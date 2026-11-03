@@ -337,6 +337,12 @@ test('三档 preset 的工具面：只读档无 shell、owner 档显式挂本地
   assert.equal(ownerSearch.config?.sampleOverCapGlobResults, false,
     'tool-fs-search 的 sampleOverCapGlobResults 是必填 config，漏了会让整行加载失败');
   assert.equal(byId(owner, 'tool-bash')?.disabled, true, 'Windows 目标平台：bash 行保留但禁用');
+  const delegation = byId(owner, 'delegation');
+  assert.ok(delegation?.config?.some((row) => row.id === 'tool-subagent' && row.config?.provider === 'spawn'), 'owner 应挂载 spawn 子 Agent');
+  assert.ok(delegation?.config?.some((row) => row.id === 'tool-subagent-fork' && row.config?.provider === 'fork'), 'owner 应挂载 fork 子 Agent');
+  for (const id of [...SIMULATION_PRESETS, 'qq-chat-readonly']) {
+    assert.equal(byId(rows(id), 'delegation'), undefined, `${id} 不能挂载子 Agent`);
+  }
   // 不授予的能力不许"顺手挂上"：挂了也调不动（执行期会被拒），但 schema 里出现就是噪声与诱导。
   for (const forbidden of [
     '@deepseek-ai/dsh-tool-jobs', '@deepseek-ai/dsh-tool-skill', '@deepseek-ai/dsh-tool-terminal',
