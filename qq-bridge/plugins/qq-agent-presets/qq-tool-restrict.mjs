@@ -134,7 +134,7 @@ const LOCAL_EXECUTION_TOOLS = [
   'subagent', 'subagent_fork', 'list_subagent_models',
   'send_message', 'interrupt_agent', 'list_agents',
   'mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video',
-  'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment',
+  'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment', 'mcp__bili-read__bili_send_dm', 'mcp__bili-read__bili_interaction_options',
   'workflow', 'ralph',
   // 插件/cordis 运行期检查：能读宿主状态（0.1.7 起只有这两个名字）
   'cordis_inspect_list', 'cordis_inspect_query',
@@ -306,7 +306,7 @@ const OWNER_GRANTABLE_TOOL_NAMES = new Set([
   'subagent', 'subagent_fork', 'list_subagent_models',
   'send_message', 'interrupt_agent', 'list_agents',
   'mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video',
-  'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment',
+  'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment', 'mcp__bili-read__bili_send_dm', 'mcp__bili-read__bili_interaction_options',
 ])
 
 /**
@@ -322,7 +322,7 @@ export const READONLY_TOOL_NAMES = Object.freeze(['read', 'read_image', 'glob', 
 
 const NEVER_GRANTED_SET = new Set(NEVER_GRANTED_TOOL_NAMES)
 const READONLY_TOOL_SET = new Set(READONLY_TOOL_NAMES)
-const OWNER_BILI_TOOLS = new Set(['mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video', 'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment'])
+const OWNER_BILI_TOOLS = new Set(['mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video', 'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment', 'mcp__bili-read__bili_send_dm', 'mcp__bili-read__bili_interaction_options'])
 
 /**
  * 归一化行级 `config.mode`。

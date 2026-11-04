@@ -889,7 +889,9 @@ window.__ModuleLoader__.load({
     fields(card('互动范围', '选择允许的互动方式，并设置每天的上限。'), [
       ['interactions.likeEnabled', '允许点赞', 'bool', '自主判断是否为视频点赞。'], ['interactions.commentEnabled', '允许评论', 'bool', '自主判断是否参与评论。'],
       ['interactions.likeDailyLimit', '每天最多点赞数', 'number', '填 0 表示不点赞。'], ['interactions.commentDailyLimit', '每天最多评论数', 'number', '填 0 表示不评论。'],
-      ['interactions.mentionEnabled', '允许 @', 'bool', '暂未接入，当前不会 @ 任何人。'], ['interactions.mentionUids', '允许 @ 的 UID', 'list', '多个 UID 用逗号分隔；名单为空时不能开启。'],
+      ['interactions.mentionEnabled', '允许 @', 'bool', '评论时仅可 @ 名单中的账号。'], ['interactions.mentionUids', '允许 @ 的 UID', 'list', '多个 UID 用逗号分隔；名单为空时不能开启。'],
+      ['interactions.dmEnabled', '允许发送 B站私信', 'bool', '仅能向名单中的账号发送，默认关闭。'], ['interactions.dmDailyLimit', '每天最多私信数', 'number', '按北京时间计算，填 0 表示不发送。'],
+      ['interactions.dmUids', '允许私信的 UID', 'list', '多个 UID 用逗号分隔；名单为空时不能开启。'],
     ])
     root.appendChild(actionsRow([{ label: '保存 B站设置', onClick: function () {
       var inputs = modal.body.querySelectorAll('input[data-bili-key]')
@@ -927,7 +929,7 @@ window.__ModuleLoader__.load({
     } }, { label: '刷新登录状态', ghost: true, onClick: refreshLoginStatus }]))
     root.appendChild(login)
 
-    var logs = card('刷视频日志', '显示视频读取、点赞、评论和回复的记录。')
+    var logs = card('刷视频日志', '显示视频读取、点赞、评论、回复和私信的记录。')
     var logBox = h('div', 'dsh-bili-log'); logBox.setAttribute('aria-live', 'polite'); logs.appendChild(logBox)
     function refreshLogs() {
       logBox.textContent = ''; logBox.appendChild(h('div', 'dsh-bili-logempty', '正在加载日志…'))
@@ -944,7 +946,8 @@ window.__ModuleLoader__.load({
           if (typeof entry.bvid === 'string' && /^BV[0-9A-Za-z]{10}$/.test(entry.bvid)) {
             var link = h('a', null, entry.bvid); link.href = 'https://www.bilibili.com/video/' + entry.bvid; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.style.marginLeft = '8px'; link.style.color = '#e88ba9'; detail.appendChild(link)
           }
-          if (entry.replyTo) detail.appendChild(h('div', 'dsh-bili-sub', '回复对象：' + entry.replyTo))
+          if (entry.replyTo) detail.appendChild(h('div', 'dsh-bili-sub', (entry.action === '私信' ? '收件人：' : '回复对象：') + entry.replyTo))
+          if (Array.isArray(entry.mentionUids) && entry.mentionUids.length) detail.appendChild(h('div', 'dsh-bili-sub', '@ UID：' + entry.mentionUids.join('、')))
           if (entry.content) detail.appendChild(h('div', 'dsh-bili-sub', '内容：' + entry.content))
           row.appendChild(detail)
           row.appendChild(h('span', 'dsh-bili-logstate' + (entry.state === '失败' ? ' bad' : ''), entry.state || '—'))

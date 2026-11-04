@@ -15,5 +15,15 @@ try {
   const uncertain=createBiliInteractions({dataDir:dir,watched,call:async()=>({success:false})});
   assert.equal((await uncertain.perform({kind:'comment',bvid,text:'说得不错'})).uncertain,true);
   const last=JSON.parse(fs.readFileSync(path.join(dir,'events.jsonl'),'utf8').trim().split('\n').at(-1));assert.equal(last.state,'不确定');
+  config.interactions.commentDailyLimit=5;config.interactions.mentionEnabled=true;config.interactions.mentionUids=['123'];
+  config.interactions.dmEnabled=true;config.interactions.dmDailyLimit=1;config.interactions.dmUids=['123'];
+  fs.writeFileSync(path.join(dir,'config.json'),JSON.stringify(config));
+  await assert.rejects(service.perform({kind:'comment',bvid,text:'不错',mentionUids:['124']}),/不在名单/);
+  assert.equal((await service.perform({kind:'comment',bvid,text:'值得看看',mentionUids:['123']})).ok,true);
+  assert.deepEqual(calls.at(-1).args.mention_uids,[123]);
+  await assert.rejects(service.sendDm({receiverUid:'124',text:'你好'}),/收件人/);
+  assert.equal((await service.sendDm({receiverUid:'123',text:'你好'})).ok,true);
+  assert.deepEqual(calls.at(-1),{name:'bili_send_message',args:{receiver_uid:123,text:'你好'}});
+  await assert.rejects(service.sendDm({receiverUid:'123',text:'你好'}),/额度/);
   console.log('B站互动限额和审计测试通过');
 }finally{fs.rmSync(dir,{recursive:true,force:true})}

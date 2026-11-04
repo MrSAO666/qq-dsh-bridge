@@ -203,6 +203,10 @@ Windows 对应使用 `python -m venv state/bili/.venv` 和 `state/bili/.venv/Scr
 | [NoMindSama/qq-dsh-bridge](https://github.com/NoMindSama/qq-dsh-bridge) | 本分支的直接基础：QQ 桥接、人格、记忆与权限机制。 |
 | [Derpyu520/qq-bridge](https://github.com/Derpyu520/qq-bridge) | 原桥接实现与相关贡献者；原版权声明保留在根 LICENSE。 |
 | [YOYOLnFu/dsh-bili-pond](https://github.com/YOYOLnFu/dsh-bili-pond) | B 站接口、登录及浏览设计参考；本分支复用其内嵌 B 站服务并做适配。 |
+
+### B 站评论 @ 与私信
+
+B 站设置支持评论时 @ 指定 UID，以及向允许的 UID 发送私信。两项分别受开关控制：评论 @ 还受评论开关和每日评论上限约束；私信默认关闭，需填写允许的收件人和每日上限。私信与评论尝试会写入互动日志；接口结果不明确时不会自动重试。只有主人和 B 站浏览子任务可使用这些受控工具。
 | [c1overzz/dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll) | 鱼塘项目说明中的上游；衍生关系见内嵌 NOTICE。 |
 | bilibili-mcp · [AGI_Ananas 版权声明](qq-bridge/vendor/bilibili-mcp/LICENSE) | 经鱼塘 vendor 引入的 B 站 MCP 服务；原作者署名与 MIT 条款以保留的 LICENSE 为准。 |
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | Agent 运行、模型调用、子 Agent 及会话事件接口。 |

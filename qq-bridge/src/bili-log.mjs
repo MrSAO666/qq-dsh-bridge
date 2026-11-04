@@ -44,7 +44,7 @@ function readActivity(file, limit) {
     const size = fs.fstatSync(fd).size, start = Math.max(0, size - 256 * 1024), data = Buffer.alloc(size - start);
     const len = fs.readSync(fd, data, 0, data.length, start);
     const lines = data.subarray(0, len).toString('utf8').split('\n'); if (start > 0) lines.shift();
-    const validActions = new Set(['搜索视频', '查看 UP 主投稿', '读取视频字幕', '获取首页推荐', '读取评论', '点赞', '核实点赞', '评论', '回复']);
+    const validActions = new Set(['搜索视频', '查看 UP 主投稿', '读取视频字幕', '获取首页推荐', '读取评论', '点赞', '核实点赞', '评论', '回复', '私信']);
     const validStates = new Set(['开始', '完成', '失败', '无字幕跳过', '不确定']);
     const entries = [];
     const operations = new Map();
@@ -58,6 +58,11 @@ function readActivity(file, limit) {
       if (['评论', '回复'].includes(row.action)) {
         if (typeof row.content === 'string') item.content = row.content.slice(0, 1000);
         if (typeof row.replyTo === 'string') item.replyTo = row.replyTo.slice(0, 100);
+        if (Array.isArray(row.mentionUids)) item.mentionUids = row.mentionUids.filter(x => typeof x === 'string' && /^[1-9]\d{0,15}$/.test(x)).slice(0, 3);
+      }
+      if (row.action === '私信') {
+        if (typeof row.content === 'string') item.content = row.content.slice(0, 1000);
+        if (typeof row.receiverUid === 'string' && /^[1-9]\d{0,15}$/.test(row.receiverUid)) item.replyTo = 'UID ' + row.receiverUid;
       }
       const id = typeof row.operationId === 'string' ? row.operationId : null;
       const prior = id ? operations.get(id) : entries.at(-1);

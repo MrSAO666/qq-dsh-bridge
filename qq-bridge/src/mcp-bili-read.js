@@ -8,6 +8,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { createBiliClient } from './bili-client.mjs';
 import { createBiliInteractions } from './bili-interactions.mjs';
+import { normalizeBiliConfig } from './bili-config.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dataDir = path.join(root, 'state', 'bili');
@@ -20,6 +21,12 @@ const interactions = createBiliInteractions({ dataDir, call: (name, args) => ups
 const server = new McpServer({ name: 'bili-read', version: '0.1.0' });
 const text = data => ({ content: [{ type: 'text', text: JSON.stringify(data) }] });
 const error = () => ({ isError: true, content: [{ type: 'text', text: 'B站读取失败，请检查登录或稍后重试。' }] });
+server.tool('bili_interaction_options', '查看主人允许的评论 @ 和私信对象及开关。', {}, async () => {
+  try {
+    const a=normalizeBiliConfig(JSON.parse(fs.readFileSync(path.join(dataDir,'config.json'),'utf8'))).interactions;
+    return text({commentEnabled:a.commentEnabled,mentionEnabled:a.mentionEnabled,mentionUids:a.mentionEnabled?a.mentionUids:[],dmEnabled:a.dmEnabled,dmUids:a.dmEnabled?a.dmUids:[]});
+  } catch { return error(); }
+});
 function audit(action, state, bvid) {
   try {
     fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -65,15 +72,21 @@ server.tool('bili_like', '按设置为已读字幕视频点赞。关闭开关或
 }, async ({bvid}) => {
   try{return text(await interactions.perform({kind:'like',bvid}));}catch(e){return {isError:true,content:[{type:'text',text:String(e.message).slice(0,200)}]};}
 });
-server.tool('bili_comment', '按设置在已读字幕视频发表评论或回复；不支持在内容中直接 @。', {
+server.tool('bili_comment', '按设置在已读字幕视频发表评论或回复；需要 @ 时通过 mentionUids 指定设置中允许的 UID，正文不要手写 @。', {
   bvid:z.string().regex(/^BV[0-9A-Za-z]{10}$/), text:z.string().trim().min(1).max(1000),
-  rpid:z.number().int().safe().nonnegative().optional(),root:z.number().int().safe().nonnegative().optional(),replyTo:z.string().max(100).optional(),
-}, async ({bvid,text:content,rpid=0,root=0,replyTo=''}) => {
+  rpid:z.number().int().safe().nonnegative().optional(),root:z.number().int().safe().nonnegative().optional(),replyTo:z.string().max(100).optional(), mentionUids:z.array(z.string().regex(/^[1-9]\d{0,15}$/)).max(3).optional(),
+}, async ({bvid,text:content,rpid=0,root=0,replyTo='',mentionUids=[]}) => {
   try{
     const target=rpid?commentTargets.get(`${bvid}:${rpid}`):null;
     if(rpid&&!target)throw Error('请先读取评论并选择已取得的回复目标');
-    return text(await interactions.perform({kind:'comment',bvid,text:content,rpid,root:target?.root||0,replyTo:target?.user||''}));
+    return text(await interactions.perform({kind:'comment',bvid,text:content,rpid,root:target?.root||0,replyTo:target?.user||'',mentionUids}));
   }catch(e){return {isError:true,content:[{type:'text',text:String(e.message).slice(0,200)}]};}
+});
+
+server.tool('bili_send_dm', '向设置中允许的 UID 发送 B站私信，受开关和每日上限控制。', {
+  receiverUid:z.string().regex(/^[1-9]\d{0,15}$/), text:z.string().trim().min(1).max(1000),
+}, async ({receiverUid,text:content}) => {
+  try{return text(await interactions.sendDm({receiverUid,text:content}));}catch(e){return {isError:true,content:[{type:'text',text:String(e.message).slice(0,200)}]};}
 });
 
 await server.connect(new StdioServerTransport());

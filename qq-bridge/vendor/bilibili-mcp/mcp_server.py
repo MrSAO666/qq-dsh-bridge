@@ -979,7 +979,7 @@ def _guard_log(entry: dict) -> None:
 
 
 @tool()
-async def bili_reply(bvid: str, text: str, rpid: int = 0, root: int = 0) -> str:
+async def bili_reply(bvid: str, text: str, rpid: int = 0, root: int = 0, mention_uids: list[int] = None) -> str:
     """
     在B站视频下发表评论或回复某条评论
 
@@ -1006,7 +1006,29 @@ async def bili_reply(bvid: str, text: str, rpid: int = 0, root: int = 0) -> str:
             return json.dumps({"success": False, "error": "目标评论已不存在（可能已被删除），未发送"}, ensure_ascii=False)
 
     try:
-        if rpid == 0:
+        if mention_uids:
+            if len(mention_uids) > 3 or len(set(mention_uids)) != len(mention_uids):
+                raise ValueError('无效的 @ 名单')
+            names = {}
+            for uid in mention_uids:
+                if not isinstance(uid, int) or uid <= 0:
+                    raise ValueError('无效的 @ UID')
+                info = await user.User(uid=uid, credential=cred).get_user_info()
+                name = info.get('name')
+                if not isinstance(name, str) or not name.strip() or any(c in name for c in '@＠\r\n') or name in names:
+                    raise ValueError('无法确认 @ 账号昵称')
+                names[name] = uid
+            message = text + ' ' + ' '.join('@' + name for name in names)
+            if len(message) > 1000:
+                raise ValueError('评论过长')
+            data = {'oid': aid, 'type': comment.CommentResourceType.VIDEO.value,
+                    'message': message, 'plat': 1, 'statistics': {'appId': 100, 'platform': 5},
+                    'gaia_source': 'main_web', 'at_name_to_mid': json.dumps(names, ensure_ascii=False)}
+            if rpid:
+                data['root'] = root if root else rpid
+                data['parent'] = rpid
+            result = await comment.Api(**comment.API['comment']['send'], credential=cred).update_data(**data).result
+        elif rpid == 0:
             # 发表新评论
             result = await comment.send_comment(
                 text=text,
