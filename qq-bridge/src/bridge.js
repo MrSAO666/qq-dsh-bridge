@@ -47,6 +47,7 @@ import { readBiliLogs } from './bili-log.mjs';
 import { createBiliAutomation } from './bili-automation.mjs';
 import { createXiaoheiheService } from './xiaoheihe-service.mjs';
 import { createXiaoheiheAutomation } from './xiaoheihe-automation.mjs';
+import { blocksOtherPlatform } from './background-arbitration.mjs';
 import { DEFAULT_XIAOHEIHE_CONFIG, normalizeXiaoheiheConfig } from './xiaoheihe-config.mjs';
 import {
   loadSlang,
@@ -13579,7 +13580,7 @@ async function main() {
   biliAutomation = createBiliAutomation({
     stateFile: path.join(biliDir, 'run.json'), api, getConfig: getBiliConfig, log,
     getParent: async () => {
-      if (!dshReady || currentMode !== 'reserved2' || !cfg.ownerQQ || xiaoheiheAutomation?.snapshot().active) return null;
+      if (!dshReady || currentMode !== 'reserved2' || !cfg.ownerQQ || blocksOtherPlatform(xiaoheiheAutomation?.snapshot().active)) return null;
       const key = `private:${cfg.ownerQQ}`;
       if (!isSessionAllowedInCurrentMode(key) || modePreset(key, currentMode, cfg) !== 'qq-chat-owner' || isConversationBusyV2(key, getSocialV2State(key))) return null;
       if (!await prepareContextForWakeV2(key, getSocialV2State(key), 'biliAutomatic')) return null;
@@ -13612,7 +13613,7 @@ async function main() {
     stateFile:path.join(xiaoheiheDir,'run.json'), api, log,
     getConfig:()=> { const config=getXiaoheiheConfig(); if (!getXiaoheiheService().status().configured) config.enabled=false; return config; },
     getParent:async()=>{
-      if (!dshReady || currentMode!=='reserved2' || !cfg.ownerQQ || biliAutomation?.snapshot().active) return null;
+      if (!dshReady || currentMode!=='reserved2' || !cfg.ownerQQ || blocksOtherPlatform(biliAutomation?.snapshot().active)) return null;
       const key=`private:${cfg.ownerQQ}`;
       if (!isSessionAllowedInCurrentMode(key) || modePreset(key,currentMode,cfg)!=='qq-chat-owner' || isConversationBusyV2(key,getSocialV2State(key))) return null;
       if (!await prepareContextForWakeV2(key,getSocialV2State(key),'xiaoheiheAutomatic')) return null;

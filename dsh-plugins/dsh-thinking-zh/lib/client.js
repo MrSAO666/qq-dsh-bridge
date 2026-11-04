@@ -1219,9 +1219,21 @@ window.__ModuleLoader__.load({
   }
 
   function renderXiaoheiheTab(d) {
-    var nodes = [], box = h('div', 'dsh-bili-card'), status = h('div', 'dsh-bili-sub', d.configured ? '已保存账号，登录有效性尚未验证。' : '尚未登录，请使用独立账号扫码。')
+    var root = h('div', 'dsh-bili'), nodes = [], hero = h('div', 'dsh-bili-hero')
+    hero.appendChild(h('div', 'dsh-bili-eyebrow', 'XIAOHEIHE · 探索设置'))
+    hero.appendChild(h('h3', null, '让大肥鱼去小黑盒看看'))
+    hero.appendChild(h('p', null, '设置浏览节奏和关注话题，查看账号与浏览记录。'))
+    hero.appendChild(h('div', 'dsh-bili-badge' + (d.automationReady ? ' ready' : ''), d.automationReady ? '● 刷帖任务已接入' : '● 刷帖任务暂不可用'))
+    if (d.automation) {
+      var today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+      var runStatus = { reserved: '等待子任务确认', running: '子 Agent 正在浏览', stopping: '到时停止中' }[d.automation.active] || '等待下一次安排'
+      hero.appendChild(h('p', 'dsh-bili-sub', runStatus + ' · 今天已安排 ' + ((d.automation.counts || {})[today] || 0) + ' / ' + ((d.config || {}).dailyRuns || 0) + ' 次'))
+    }
+    root.appendChild(hero)
+    var box = h('section', 'dsh-bili-card'), status = h('div', 'dsh-bili-sub', d.configured ? '● 已保存账号，登录有效性尚未验证。' : '● 尚未登录，请使用独立账号扫码。')
     var qr = h('div', 'dsh-bili-qr'), session = ''
-    box.appendChild(h('h3', null, '小黑盒账号'))
+    box.appendChild(h('h4', null, '小黑盒账号'))
+    box.appendChild(h('p', 'dsh-bili-sub', '使用独立账号扫码登录，登录信息保存在服务器。'))
     box.appendChild(status); box.appendChild(qr)
     box.appendChild(actionsRow([{ label:'获取登录二维码', onClick:function () {
       postJson(mState.feature.api + '/xiaoheihe', { action:'start' }).then(function (r) {
@@ -1239,30 +1251,40 @@ window.__ModuleLoader__.load({
       })
     } }]))
     nodes.push(box)
-    var config=d.config || {}, panel=h('div','dsh-bili-card')
-    panel.appendChild(h('h3',null,'自主浏览'))
+    var config=d.config || {}, panel=h('section','dsh-bili-card'), grid=h('div','dsh-bili-grid')
+    panel.appendChild(h('h4',null,'浏览安排'))
     panel.appendChild(h('p','dsh-bili-sub','每次从子任务实际开始计时；任务结果仅交给主人会话，不自动发送 QQ 汇报。'))
     function field(label, type, value) {
-      var wrap=h('div','dsh-bili-field'), text=h('label',null,label), input=document.createElement('input')
+      var wrap=h(type==='checkbox'?'label':'div',type==='checkbox'?'dsh-bili-toggle':'dsh-bili-field'), text=h(type==='checkbox'?'strong':'label',null,label), input=document.createElement('input')
       input.type=type; if(type==='checkbox') input.checked=!!value; else input.value=value == null ? '' : value
-      wrap.appendChild(text); wrap.appendChild(input); panel.appendChild(wrap); return input
+      if(type!=='checkbox') input.className='dsh-fb-input'
+      wrap.appendChild(text); wrap.appendChild(input); grid.appendChild(wrap); return input
     }
     var enabled=field('启用小黑盒功能','checkbox',config.enabled), automatic=field('允许自主浏览','checkbox',config.autoEnabled)
     var runs=field('每天最多浏览次数','number',config.dailyRuns), duration=field('每次最长分钟数','number',config.durationMinutes)
     runs.min='0'; runs.max='100'; duration.min='1'; duration.max='1440'; runs.step=duration.step='1'
     var topics=field('关注话题（逗号分隔）','text',(config.topics||[]).join('，'))
+    panel.appendChild(grid)
+    var saveStatus=h('div','dsh-bili-sub',''); saveStatus.setAttribute('aria-live','polite'); panel.appendChild(saveStatus)
     panel.appendChild(actionsRow([{ label:'保存小黑盒设置', onClick:function () {
-      if (!runs.validity.valid || !duration.validity.valid || !runs.value || !duration.value) { status.textContent='请检查次数和时长。'; return }
+      if (!runs.validity.valid || !duration.validity.valid || !runs.value || !duration.value) { saveStatus.textContent='请检查次数和时长。'; return }
       var data={enabled:enabled.checked,autoEnabled:automatic.checked,dailyRuns:Number(runs.value),durationMinutes:Number(duration.value),topics:topics.value.split(/[,，\n]/).map(function(x){return x.trim()}).filter(Boolean)}
-      postJson(mState.feature.api+'/xiaoheihe',{action:'save',config:data}).then(function(r){status.textContent=r && r.ok ? '小黑盒设置已保存。' : ((r && r.error)||'保存失败。')})
+      postJson(mState.feature.api+'/xiaoheihe',{action:'save',config:data}).then(function(r){saveStatus.textContent=r && r.ok ? '小黑盒设置已保存。' : ((r && r.error)||'保存失败。')})
     }}]))
     panel.appendChild(h('p','dsh-bili-sub','公开评论、回复、发帖未开放；只读取帖子和评论。'))
     nodes.push(panel)
-    var records=h('div','dsh-bili-card'); records.appendChild(h('h3',null,'最近浏览记录'))
-    if (!(d.logs||[]).length) records.appendChild(h('p','dsh-bili-sub','暂无记录。'))
-    ;(d.logs||[]).forEach(function(item){ var row=h('div','dsh-bili-sub',new Date(item.at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+' · '+item.action+' · '+item.result+' '); if(item.postId && /^\d+$/.test(item.postId)) { var a=h('a',null,item.title||item.postId); a.href='https://www.xiaoheihe.cn/app/bbs/link/'+item.postId; a.target='_blank'; a.rel='noopener noreferrer'; row.appendChild(a) } records.appendChild(row) })
+    var records=h('section','dsh-bili-card'); records.appendChild(h('h4',null,'浏览日志')); records.appendChild(h('p','dsh-bili-sub','显示帖子读取结果及原文链接。'))
+    var logBox=h('div','dsh-bili-log'); records.appendChild(logBox)
+    function renderLogs(logs) {
+      logBox.textContent=''
+      if (!Array.isArray(logs) || !logs.length) { logBox.appendChild(h('div','dsh-bili-logempty','暂无浏览记录。')); return }
+      logs.forEach(function(item){ var row=h('div','dsh-bili-logrow'), stamp=new Date(item.at), detail=h('div'); row.appendChild(h('span','dsh-bili-logtime',isNaN(stamp.getTime())?'—':stamp.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}))); detail.appendChild(h('span',null,item.action||'小黑盒操作')); if(item.postId && /^\d+$/.test(String(item.postId))) { var a=h('a',null,item.title||item.postId); a.href='https://www.xiaoheihe.cn/app/bbs/link/'+item.postId; a.target='_blank'; a.rel='noopener noreferrer'; a.style.marginLeft='8px'; a.style.color='#e88ba9'; detail.appendChild(a) } row.appendChild(detail); row.appendChild(h('span','dsh-bili-logstate'+(item.result==='失败'?' bad':''),item.result||'—')); logBox.appendChild(row) })
+    }
+    records.appendChild(actionsRow([{label:'刷新日志',ghost:true,onClick:function(){logBox.textContent='正在加载日志…';fetchJson(mState.feature.api+'/xiaoheihe').then(function(r){if(!modal||mState.tab!=='xiaoheihe')return;if(!r||!r.ok){logBox.textContent=(r&&r.error)||'日志暂时不可用';return}renderLogs(r.logs)})}}]))
+    renderLogs(d.logs)
     nodes.push(records)
-    setBody(nodes)
+    nodes.forEach(function(node){root.appendChild(node)})
+    setBody([root])
   }
 
   function renderPersonaTab(d) {

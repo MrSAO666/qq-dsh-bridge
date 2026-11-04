@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {blocksOtherPlatform,STALE_RESERVATION_MS} from '../src/background-arbitration.mjs';
+const now=100000000;
+assert.equal(blocksOtherPlatform(null,now),false);
+assert.equal(blocksOtherPlatform({status:'running'},now),true);
+assert.equal(blocksOtherPlatform({status:'stopping'},now),true);
+assert.equal(blocksOtherPlatform({status:'reserved',reservedAt:now-STALE_RESERVATION_MS+1,durationMs:1200000},now),true);
+assert.equal(blocksOtherPlatform({status:'reserved',reservedAt:now-STALE_RESERVATION_MS,durationMs:1200000},now),false);
+assert.equal(blocksOtherPlatform({status:'reserved',reservedAt:now-STALE_RESERVATION_MS,durationMs:86400000},now),true);
+assert.equal(blocksOtherPlatform({status:'reserved'},now),true);
+assert.equal(blocksOtherPlatform({status:'reserved',reservedAt:now+1},now),true);
+assert.equal(blocksOtherPlatform({status:'reserved',reservedAt:now-STALE_RESERVATION_MS,durationMs:'invalid'},now),true);
+console.log('跨平台预约隔离测试通过');
