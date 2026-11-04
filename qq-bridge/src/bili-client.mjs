@@ -7,7 +7,7 @@ const BV = /^BV[0-9A-Za-z]{10}$/;
 
 export function createBiliClient({ python, script, dataDir, clientFactory, transportFactory, interactionAdapter = false } = {}) {
   if (!python || !script || !dataDir || !path.isAbsolute(dataDir)) throw new Error('B站运行环境配置不完整');
-  const methods = interactionAdapter ? new Set([...METHODS, 'bili_comments', 'bili_like', 'bili_reply', 'bili_recommendations', 'bili_send_message']) : METHODS;
+  const methods = interactionAdapter ? new Set([...METHODS, 'bili_comments', 'bili_like', 'bili_reply', 'bili_recommendations', 'bili_send_message', 'bili_dm_inbox']) : METHODS;
   let client = null, transport = null, connecting = null;
   async function connect() {
     if (client) return client;

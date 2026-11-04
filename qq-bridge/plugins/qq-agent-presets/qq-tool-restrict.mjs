@@ -134,7 +134,7 @@ const LOCAL_EXECUTION_TOOLS = [
   'subagent', 'subagent_fork', 'list_subagent_models',
   'send_message', 'interrupt_agent', 'list_agents',
   'mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video',
-  'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment', 'mcp__bili-read__bili_send_dm', 'mcp__bili-read__bili_interaction_options',
+  'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment', 'mcp__bili-read__bili_send_dm', 'mcp__bili-read__bili_interaction_options', 'mcp__bili-read__bili_read_dm',
   'workflow', 'ralph',
   // 插件/cordis 运行期检查：能读宿主状态（0.1.7 起只有这两个名字）
   'cordis_inspect_list', 'cordis_inspect_query',
@@ -306,7 +306,7 @@ const OWNER_GRANTABLE_TOOL_NAMES = new Set([
   'subagent', 'subagent_fork', 'list_subagent_models',
   'send_message', 'interrupt_agent', 'list_agents',
   'mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video',
-  'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment', 'mcp__bili-read__bili_send_dm', 'mcp__bili-read__bili_interaction_options',
+  'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment', 'mcp__bili-read__bili_send_dm', 'mcp__bili-read__bili_interaction_options', 'mcp__bili-read__bili_read_dm',
 ])
 
 /**
@@ -478,7 +478,7 @@ export function apply(ctx, config = {}) {
   }
 
   // B站只读工具由 profile 全局注册：owner 会话必须保留可见，其他档隐藏。
-  const hiddenNames = mode === MODES.OPEN || mode === MODES.BILI ? RESTRICTED_TOOL_NAMES.filter(name => !OWNER_BILI_TOOLS.has(name) && !VIDEO_TOOLS.has(name)) : [...RESTRICTED_TOOL_NAMES]
+  const hiddenNames = mode === MODES.OPEN || mode === MODES.BILI ? RESTRICTED_TOOL_NAMES.filter(name => !OWNER_BILI_TOOLS.has(name) && !VIDEO_TOOLS.has(name) && !(mode === MODES.OPEN && name === 'mcp__bili-read__bili_read_dm')) : [...RESTRICTED_TOOL_NAMES]
   const firstOk = attempt(hiddenNames)
   const firstFailed = failed.slice()
   failed.length = 0

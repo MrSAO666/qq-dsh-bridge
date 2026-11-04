@@ -207,6 +207,8 @@ Windows 对应使用 `python -m venv state/bili/.venv` 和 `state/bili/.venv/Scr
 ### B 站评论 @ 与私信
 
 B 站设置支持评论时 @ 指定 UID，以及向允许的 UID 发送私信。两项分别受开关控制：评论 @ 还受评论开关和每日评论上限约束；私信默认关闭，需填写允许的收件人和每日上限。私信与评论尝试会写入互动日志；接口结果不明确时不会自动重试。只有主人和 B 站浏览子任务可使用这些受控工具。
+
+读取私信是独立开关，默认关闭；填写允许读取的会话 UID 后，主人会话可按需读取最近消息。该功能不会自动扫描或回复私信，B 站浏览子任务不能读取私信。读取内容属于外部数据，不作为系统指令。
 | [c1overzz/dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll) | 鱼塘项目说明中的上游；衍生关系见内嵌 NOTICE。 |
 | bilibili-mcp · [AGI_Ananas 版权声明](qq-bridge/vendor/bilibili-mcp/LICENSE) | 经鱼塘 vendor 引入的 B 站 MCP 服务；原作者署名与 MIT 条款以保留的 LICENSE 为准。 |
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | Agent 运行、模型调用、子 Agent 及会话事件接口。 |

@@ -892,6 +892,7 @@ window.__ModuleLoader__.load({
       ['interactions.mentionEnabled', '允许 @', 'bool', '评论时仅可 @ 名单中的账号。'], ['interactions.mentionUids', '允许 @ 的 UID', 'list', '多个 UID 用逗号分隔；名单为空时不能开启。'],
       ['interactions.dmEnabled', '允许发送 B站私信', 'bool', '仅能向名单中的账号发送，默认关闭。'], ['interactions.dmDailyLimit', '每天最多私信数', 'number', '按北京时间计算，填 0 表示不发送。'],
       ['interactions.dmUids', '允许私信的 UID', 'list', '多个 UID 用逗号分隔；名单为空时不能开启。'],
+      ['interactions.dmReadEnabled', '允许读取 B站私信', 'bool', '只读取名单内的会话，默认关闭。'], ['interactions.dmReadUids', '允许读取会话的 UID', 'list', '多个 UID 用逗号分隔；名单为空时不能开启。'],
     ])
     root.appendChild(actionsRow([{ label: '保存 B站设置', onClick: function () {
       var inputs = modal.body.querySelectorAll('input[data-bili-key]')
