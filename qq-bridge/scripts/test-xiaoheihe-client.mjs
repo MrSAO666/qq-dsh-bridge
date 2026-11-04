@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { createXiaoheiheClient } from '../src/xiaoheihe-client.mjs';
+const calls=[];
+const client=createXiaoheiheClient({getCredentials:()=>({cookie:'private',heyboxId:'123',deviceId:'a'.repeat(32)}),fetchImpl:async(url,opts)=>{calls.push({url,opts});return new Response(JSON.stringify({status:'ok',result:{links:[{linkid:'123'}]}}));}});
+assert.equal((await client.feed()).links[0].linkid,'123');
+assert.equal(new URL(calls[0].url).pathname,'/bbs/app/feeds');
+assert.equal(calls[0].opts.redirect,'error');
+await assert.rejects(()=>client.post('../other'),/编号/);
+await client.post('123');
+assert.equal(new URL(calls[1].url).searchParams.get('link_id'),'123');
+assert.equal(calls.length,2);
+const missing=createXiaoheiheClient({getCredentials:()=>({}),fetchImpl:()=>{throw Error('must not request')}});
+await assert.rejects(()=>missing.feed(),/登录/);
+console.log('小黑盒只读接口校验通过');

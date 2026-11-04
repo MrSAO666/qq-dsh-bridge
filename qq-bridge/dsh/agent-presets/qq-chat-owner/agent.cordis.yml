@@ -242,7 +242,7 @@
       name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
     - id: tool-subagent
       name: '@deepseek-ai/dsh-tool-subagent'
-      config: { provider: spawn, toolName: subagent, allowedAgentPresets: [qq-bili-worker] }
+      config: { provider: spawn, toolName: subagent, allowedAgentPresets: [qq-bili-worker, qq-xiaoheihe-worker] }
     - id: tool-subagent-fork
       name: '@deepseek-ai/dsh-tool-subagent'
       config: { provider: fork, toolName: subagent_fork }

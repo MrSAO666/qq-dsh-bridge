@@ -11,7 +11,8 @@
         "./presets/qq-chat-v2.patch.yml",
         "./presets/qq-chat-readonly.patch.yml",
         "./presets/qq-chat-owner.patch.yml",
-        "./presets/qq-bili-worker.patch.yml"
+        "./presets/qq-bili-worker.patch.yml",
+        "./presets/qq-xiaoheihe-worker.patch.yml"
       ]
     }
   }

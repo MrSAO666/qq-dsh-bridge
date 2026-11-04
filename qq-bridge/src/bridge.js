@@ -10,6 +10,7 @@ import os from 'node:os';
 import http from 'node:http';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import { extractPresetPrefix, presetPromptBlockers, presetPromptWarnings, presetTierKey, renderPresetPromptYaml } from './preset-prompt.js';
@@ -44,6 +45,9 @@ import { DEFAULT_BILI_CONFIG, normalizeBiliConfig } from './bili-config.mjs';
 import { createBiliClient } from './bili-client.mjs';
 import { readBiliLogs } from './bili-log.mjs';
 import { createBiliAutomation } from './bili-automation.mjs';
+import { createXiaoheiheService } from './xiaoheihe-service.mjs';
+import { createXiaoheiheAutomation } from './xiaoheihe-automation.mjs';
+import { DEFAULT_XIAOHEIHE_CONFIG, normalizeXiaoheiheConfig } from './xiaoheihe-config.mjs';
 import {
   loadSlang,
   saveSlang,
@@ -1539,6 +1543,29 @@ async function main() {
   acquireLock();
   loadState();
   const biliDir = path.join(STATE_DIR, 'bili');
+  const xiaoheiheDir = path.join(STATE_DIR, 'xiaoheihe');
+  const xiaoheiheConfigFile = path.join(xiaoheiheDir, 'config.json');
+  let xiaoheiheAutomation;
+  function getXiaoheiheConfig() {
+    try { return normalizeXiaoheiheConfig(JSON.parse(fs.readFileSync(xiaoheiheConfigFile, 'utf8'))); }
+    catch { return structuredClone(DEFAULT_XIAOHEIHE_CONFIG); }
+  }
+  function saveXiaoheiheConfig(raw) {
+    const valid = normalizeXiaoheiheConfig(raw);
+    fs.mkdirSync(xiaoheiheDir, {recursive:true,mode:0o700});
+    const tmp=xiaoheiheConfigFile+'.'+crypto.randomUUID()+'.tmp';
+    try { fs.writeFileSync(tmp,JSON.stringify(valid),{mode:0o600,flag:'wx'}); fs.renameSync(tmp,xiaoheiheConfigFile); }
+    finally { try { fs.unlinkSync(tmp); } catch {} }
+    return valid;
+  }
+  let xiaoheiheService;
+  function getXiaoheiheService() {
+    if (!xiaoheiheService) xiaoheiheService = createXiaoheiheService({ directory: xiaoheiheDir, encode: async text => {
+      const qr = createRequire(path.join(xiaoheiheDir, 'dependencies', 'package.json'))('qrcode');
+      return qr.toDataURL(text, { width:256, margin:4, errorCorrectionLevel:'M' });
+    } });
+    return xiaoheiheService;
+  }
   const biliConfigFile = path.join(biliDir, 'config.json');
   let biliAutomation;
   const biliPython = process.platform === 'win32'
@@ -3688,6 +3715,24 @@ async function main() {
         }
       }
       try {
+        if (url.pathname.startsWith('/api/xiaoheihe/')) {
+          if (req.headers['x-agent-call'] !== undefined || req.headers['x-agent-token'] !== undefined) { sendJson({ ok:false, error:'该接口仅供管理端使用' }, 403); return; }
+          const service = getXiaoheiheService();
+          if (req.method === 'GET' && url.pathname === '/api/xiaoheihe/status') {
+            let logs=[]; try { logs=fs.readFileSync(path.join(xiaoheiheDir,'events.jsonl'),'utf8').trim().split('\n').slice(-60).map(x=>JSON.parse(x)).reverse(); } catch {}
+            const run=xiaoheiheAutomation?.snapshot();
+            sendJson({ ok:true, ...service.status(), config:getXiaoheiheConfig(), automationReady:!!xiaoheiheAutomation, automation:run?{active:run.active?.status??null,counts:run.counts,lastAutomaticAt:run.lastAutomaticAt??null}:null, logs }); return;
+          }
+          if (req.method === 'POST' && url.pathname === '/api/xiaoheihe/config') { const body=await readBody(); sendJson({ok:true,config:saveXiaoheiheConfig(body.config)}); return; }
+          if (req.method === 'POST' && url.pathname === '/api/xiaoheihe/login') {
+            const body = await readBody();
+            if (body.action === 'start') { sendJson({ ok:true, result:await service.login.start() }); return; }
+            if (body.action === 'poll' && typeof body.sessionId === 'string') { sendJson({ ok:true, result:await service.login.poll(body.sessionId) }); return; }
+            if (body.action === 'cancel' && typeof body.sessionId === 'string') { service.login.cancelSession(body.sessionId); sendJson({ ok:true }); return; }
+            sendJson({ ok:false, error:'登录操作无效' }, 400); return;
+          }
+          sendJson({ ok:false, error:'小黑盒接口不存在' }, 404); return;
+        }
         // B 站配置和扫码仅面向管理界面，任何 agent 请求一律拒绝。
         if (url.pathname.startsWith('/api/bili/')) {
           if (req.headers['x-agent-call'] !== undefined || req.headers['x-agent-token'] !== undefined) { sendJson({ ok: false, error: '该接口仅供管理端使用' }, 403); return; }
@@ -13534,7 +13579,7 @@ async function main() {
   biliAutomation = createBiliAutomation({
     stateFile: path.join(biliDir, 'run.json'), api, getConfig: getBiliConfig, log,
     getParent: async () => {
-      if (!dshReady || currentMode !== 'reserved2' || !cfg.ownerQQ) return null;
+      if (!dshReady || currentMode !== 'reserved2' || !cfg.ownerQQ || xiaoheiheAutomation?.snapshot().active) return null;
       const key = `private:${cfg.ownerQQ}`;
       if (!isSessionAllowedInCurrentMode(key) || modePreset(key, currentMode, cfg) !== 'qq-chat-owner' || isConversationBusyV2(key, getSocialV2State(key))) return null;
       if (!await prepareContextForWakeV2(key, getSocialV2State(key), 'biliAutomatic')) return null;
@@ -13563,6 +13608,28 @@ async function main() {
   const biliTick = () => { void biliAutomation.tick(); };
   setTimeout(biliTick, 30000).unref?.();
   setInterval(biliTick, 60000).unref?.();
+  xiaoheiheAutomation = createXiaoheiheAutomation({
+    stateFile:path.join(xiaoheiheDir,'run.json'), api, log,
+    getConfig:()=> { const config=getXiaoheiheConfig(); if (!getXiaoheiheService().status().configured) config.enabled=false; return config; },
+    getParent:async()=>{
+      if (!dshReady || currentMode!=='reserved2' || !cfg.ownerQQ || biliAutomation?.snapshot().active) return null;
+      const key=`private:${cfg.ownerQQ}`;
+      if (!isSessionAllowedInCurrentMode(key) || modePreset(key,currentMode,cfg)!=='qq-chat-owner' || isConversationBusyV2(key,getSocialV2State(key))) return null;
+      if (!await prepareContextForWakeV2(key,getSocialV2State(key),'xiaoheiheAutomatic')) return null;
+      return {sessionId:await ensureSession(key),reportTarget:key};
+    },
+    dispatchPrompt:async(sessionId,promptText)=>{
+      const key=`private:${cfg.ownerQQ}`;
+      if (state.sessions[key]!==sessionId) return {ok:false};
+      const silentId=`xiaoheihe-${crypto.randomUUID()}`;
+      social.silentTurns.set(sessionId,[...(social.silentTurns.get(sessionId)??[]),{id:silentId,ts:Date.now()}]);
+      try { const r=await deliverPrompt(key,promptText,{silent:true}); if(r?.ok&&!r.queued&&!r.retried)return {ok:true}; throw Error('刷帖请求未直接送达 DSH'); }
+      catch(e) { const next=(social.silentTurns.get(sessionId)??[]).filter(x=>x.id!==silentId); if(next.length)social.silentTurns.set(sessionId,next); else social.silentTurns.delete(sessionId); throw e; }
+    }, onReport:()=>{},
+  });
+  const xiaoheiheTick=()=>{void xiaoheiheAutomation.tick()};
+  setTimeout(xiaoheiheTick,45000).unref?.();
+  setInterval(xiaoheiheTick,60000).unref?.();
   startConsoleServer();
   // 上下文只在「闲置边界」压缩：对话进行中一律不压（见 idleCompactV2 的说明）。
   startIdleCompactionWatch();

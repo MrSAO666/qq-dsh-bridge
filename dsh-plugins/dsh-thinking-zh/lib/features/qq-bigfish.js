@@ -37,6 +37,7 @@ export const ROUTES = {
   toggle: `${routePath}/toggle`,
   settings: `${routePath}/settings`,
   bili: `${routePath}/bili`,
+  xiaoheihe: `${routePath}/xiaoheihe`,
   persona: `${routePath}/persona`,
   tokens: `${routePath}/tokens`,
   stickers: `${routePath}/stickers`,
@@ -45,6 +46,23 @@ export const ROUTES = {
   access: `${routePath}/access`,
   backend: `${routePath}/backend`,
   diagnose: `${routePath}/diagnose`,
+}
+
+async function handleXiaoheihe(req, res) {
+  const env = bridgeEnv()
+  if (!env.ok) return json(res, 200, { ok:false, error:env.error })
+  if ((req.method || 'GET') === 'GET') {
+    const r = await bridgeApi(env, '/api/xiaoheihe/status')
+    return json(res, 200, r.ok ? r.data : { ok:false, error:r.error || '小黑盒状态不可用' })
+  }
+  const body = await readJsonBody(req)
+  if (body.action === 'save') {
+    const r = await bridgeApi(env, '/api/xiaoheihe/config', { method:'POST', body:{ config:body.config } })
+    return json(res, 200, r.ok ? r.data : { ok:false, error:r.error || r.data?.error || '保存失败' })
+  }
+  if (!['start','poll','cancel'].includes(body.action)) return json(res, 400, { ok:false, error:'登录操作无效' })
+  const r = await bridgeApi(env, '/api/xiaoheihe/login', { method:'POST', body:{ action:body.action, sessionId:body.sessionId }, timeoutMs:60000 })
+  return json(res, 200, r.ok ? r.data : { ok:false, error:r.error || r.data?.error || '小黑盒登录失败' })
 }
 
 async function handleBili(req, res) {
@@ -745,6 +763,7 @@ export function mount(ctx) {
     [ROUTES.toggle, handleToggle],
     [ROUTES.settings, handleSettings],
     [ROUTES.bili, handleBili],
+    [ROUTES.xiaoheihe, handleXiaoheihe],
     [ROUTES.persona, handlePersona],
     [ROUTES.tokens, handleTokens],
     [ROUTES.stickers, handleStickers],

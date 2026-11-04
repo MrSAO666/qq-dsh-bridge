@@ -76,12 +76,12 @@ export function apply(ctx, config) {
   async function refresh(agent) {
     const sid = String(agent.id);
     let data = await fetchContext(sid);
-    if (!data && agent.session?.header?.agentPreset === 'qq-bili-worker') {
+    if (!data && ['qq-bili-worker','qq-xiaoheihe-worker'].includes(agent.session?.header?.agentPreset)) {
       try {
         const token=await consoleToken();
         const res=await fetch(`${bridgeUrl}/api/socialV2/config`,{headers:{'x-console-token':token},signal:AbortSignal.timeout(FETCH_TIMEOUT_MS)});
         const c=await res.json();
-        if(res.ok&&c.ok)data={text:'',key:'internal:bili',ownerTaskMode:true,economy:{...c.config?.economy,taskMaxRequests:c.config?.economy?.biliMaxRequests??40,taskMaxInputTokens:c.config?.economy?.biliMaxInputTokens??1500000}};
+        if(res.ok&&c.ok)data={text:'',key:agent.session?.header?.agentPreset==='qq-bili-worker'?'internal:bili':'internal:xiaoheihe',ownerTaskMode:true,economy:{...c.config?.economy,taskMaxRequests:c.config?.economy?.biliMaxRequests??40,taskMaxInputTokens:c.config?.economy?.biliMaxInputTokens??1500000}};
       } catch {}
     }
     if (data) cache.set(sid, { ...data, at: Date.now() });

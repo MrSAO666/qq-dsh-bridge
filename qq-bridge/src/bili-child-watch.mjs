@@ -3,9 +3,10 @@ import { createBiliChildEventTracker } from './bili-child-events.mjs';
 
 // The unique run label connects a parent's catalog event to exactly one child.
 // Reconnect uses DSH snapshots, so start/end may have occurred while offline.
-export function watchBiliChild({ api, parentSessionId, runId, onStart, onEnd, onError = () => {}, socketFactory = (url, opts) => new WebSocket(url, opts) }) {
+export function watchBiliChild({ api, parentSessionId, runId, onStart, onEnd, onError = () => {}, labelPrefix = 'bili', socketFactory = (url, opts) => new WebSocket(url, opts) }) {
   if (!api || !parentSessionId || !runId) throw new Error('刷站监听参数无效');
-  const label = `bili-${runId}`;
+  if (!['bili', 'xiaoheihe'].includes(labelPrefix)) throw new Error('子任务类型无效');
+  const label = `${labelPrefix}-${runId}`;
   let socket, retry, stopped = false, childId = null, tracker, lastText = '', endReason = null;
   let readyResolve, readyReject;
   const ready = new Promise((resolve, reject) => { readyResolve = resolve; readyReject = reject; });

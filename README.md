@@ -213,12 +213,17 @@ B 站设置支持评论时 @ 指定 UID，以及向允许的 UID 发送私信。
 | bilibili-mcp · [AGI_Ananas 版权声明](qq-bridge/vendor/bilibili-mcp/LICENSE) | 经鱼塘 vendor 引入的 B 站 MCP 服务；原作者署名与 MIT 条款以保留的 LICENSE 为准。 |
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) | Agent 运行、模型调用、子 Agent 及会话事件接口。 |
 | [SnowLuma](https://github.com/SnowLuma/SnowLuma) | 外部 QQ 网关；通过 OneBot 通信，依赖其 SDK，许可独立适用。 |
+| [dsh-xiaoheihe](https://github.com/fbbDirge/dsh-xiaoheihe) | 小黑盒扫码、网页签名及论坛文本处理的参考实现，MIT 许可见 `qq-bridge/vendor/xiaoheihe/LICENSE`。 |
 
 第三方文件见 [`vendor/bilibili-mcp`](qq-bridge/vendor/bilibili-mcp)：[原 MCP 许可](qq-bridge/vendor/bilibili-mcp/LICENSE)、[鱼塘许可](qq-bridge/vendor/bilibili-mcp/pond-LICENSE)、[鱼塘 NOTICE](qq-bridge/vendor/bilibili-mcp/pond-NOTICE.md)。其他依赖遵守各自许可证，不因本仓库 MIT 许可而变更。
 
 ## 免责声明
 
 这是个人维护的非官方适配项目，与腾讯、哔哩哔哩、DeepSeek 或上述项目作者之间不存在由本仓库声明的官方合作或认可关系。
+
+小黑盒功能使用非官方网页接口，扫码凭据仅存于服务器本地账号文件。默认关闭自动浏览，开启后由主人会话分派受限只读子任务，按北京时间限制每日次数和单次时长；评论、回复和发帖不开放。帖子属于不可信外部内容，模型汇总可能有误，应以原帖为准。服务与小黑盒不存在官方隶属关系。
+
+首次使用需在 `qq-bridge` 目录运行 `npm install --prefix state/xiaoheihe/dependencies --no-save --ignore-scripts qrcode@1.5.4`，运行 `node scripts/setup-dsh.mjs` 后重启 DSH 与桥接；在悬浮球「QQ 大肥鱼 → 小黑盒」扫码登录并配置自主浏览。账号和二维码库都属于运行数据，不要提交仓库。
 
 使用第三方网关或自动化操作可能导致登录验证、限流、消息不可见、账号限制或封禁，不能承诺降低风控或永久在线。使用者应遵守平台条款、第三方许可证及适用规则，并自行管理账号、密钥、数据及操作授权；不得用于骚扰、刷屏、批量操纵互动或未经授权的信息收集。
 
