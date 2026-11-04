@@ -161,7 +161,7 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     sendToQQ, sendStickerV2, handleIncoming, startConsoleServer, cfg, state, api, promptQueues,
     getSocialV2State, appendSocialV2Message, recordSentMessagesV2,
     buildWakePromptV2, buildWakeSnapshotV2, sendWakePromptV2, socialV2,
-    computeGapsV2, armReplyWindowV2, scheduleReplyCheckV2,
+    computeGapsV2, armReplyWindowV2, scheduleReplyCheckV2, scheduleWakeV2,
     latestParentRequestV2, currentContextTokensV2, idleCompactDecisionV2, prepareContextForWakeV2, idleCompactV2, compactSessionV2,
     tokenLedger, tokenAudit, recordSessionSnapshot, recordSessionUsage, tokenChildObserver,
     syncStickerLibrary, listStickersForV2, getStickerImageData,

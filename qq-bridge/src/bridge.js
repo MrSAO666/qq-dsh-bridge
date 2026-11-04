@@ -4865,7 +4865,7 @@ async function main() {
           // wake：数值与字符串数组归一化
           if (body.wake && typeof body.wake === 'object') {
             merged.wake = { ...(current.wake ?? {}), ...body.wake };
-            for (const k of ['sleepMinMs', 'sleepMaxMs', 'recommendedSleepMinMs', 'recommendedSleepMaxMs', 'recommendedProbability', 'batchWindowMs', 'maxWakePerMinute', 'maxWakePerHour', 'noActionLimit', 'maxWakeConfigReminders', 'preSleepWaitMs']) {
+            for (const k of ['sleepMinMs', 'sleepMaxMs', 'recommendedSleepMinMs', 'recommendedSleepMaxMs', 'recommendedProbability', 'batchWindowMs', 'batchWindowMsPrivate', 'maxWakePerMinute', 'maxWakePerHour', 'noActionLimit', 'maxWakeConfigReminders', 'preSleepWaitMs']) {
               if (merged.wake[k] !== undefined) {
                 const n = Number(merged.wake[k]);
                 merged.wake[k] = Number.isFinite(n) ? n : current.wake?.[k] ?? 0;
@@ -10903,6 +10903,8 @@ async function main() {
     };
     st.lastUnreadSeq = msg.seq;
     st.lastIncomingAt = Date.now();
+    // 私聊连续文字和图片都要延长同一个待唤醒窗口。
+    if (key.startsWith('private:') && st.pendingWakeTimer) refreshPrivateBatchV2(key, st);
     // 用户开口了：这一轮对话重新开始，允许下一次「闲置边界」再压。
     // 关键语义 —— 压缩后如果不清这个标记，会话会永远停在「已压过」状态，
     // 之后聊多久都不会再压；清了也不会在同一轮里连压，因为判定要求安静
@@ -12088,22 +12090,36 @@ async function main() {
       st.sleepTimer = null;
     }
     st.pendingWakeReason = reason;
-    // 私聊默认用更短的合并窗口：私聊一来一回就是正经对话，硬等 8 秒纯属折磨。
-    // 群里保留长窗口（多人抢话需要合并），私聊可用 batchWindowMsPrivate 单独调。
-    const isPrivateConvBatch = key.startsWith('private:');
-    const privateBatchMs = Number(cfg.socialV2?.wake?.batchWindowMsPrivate);
-    const batchMs = isPrivateConvBatch && Number.isFinite(privateBatchMs) && privateBatchMs > 0
-      ? Math.max(1000, privateBatchMs)
+    const privateWindow = Number(cfg.socialV2?.wake?.batchWindowMsPrivate);
+    const batchMs = key.startsWith('private:') && Number.isFinite(privateWindow) && privateWindow > 0
+      ? Math.max(1000, privateWindow)
       : Math.max(1000, Number(st.wakeConfig?.batchWindowMs) || 8000);
+    st.pendingBatchStartedAt = Date.now();
+    st.pendingBatchWindowMs = batchMs;
+    armBatchWakeV2(key, st, batchMs);
+    log(`[reserved2] 计划唤醒 ${key}（${reason}），${Math.round(batchMs / 1000)}s 后发送`);
+  }
+
+  // Bound rolling private-message batching to avoid starvation in an active chat.
+  function armBatchWakeV2(key, st, delayMs) {
     st.pendingWakeTimer = setTimeout(() => {
       st.pendingWakeTimer = null;
-      const finalReason = st.pendingWakeReason || reason;
+      const reason = st.pendingWakeReason;
       st.pendingWakeReason = null;
-      void sendWakePromptV2(key, finalReason).catch((error) => log(`[reserved2] 计划唤醒异常 ${key}:`, error?.message ?? error));
-    }, batchMs);
-    // 与其它 per-conversation 定时器保持一致：别让一个待唤醒定时器把进程钉住不退出。
+      st.pendingBatchStartedAt = 0;
+      st.pendingBatchWindowMs = 0;
+      void sendWakePromptV2(key, reason).catch((error) => log(`[reserved2] 计划唤醒异常 ${key}:`, error?.message ?? error));
+    }, delayMs);
     st.pendingWakeTimer.unref?.();
-    log(`[reserved2] 计划唤醒 ${key}（${reason}），${Math.round(batchMs / 1000)}s 后发送`);
+  }
+
+  function refreshPrivateBatchV2(key, st) {
+    const startedAt = Number(st.pendingBatchStartedAt);
+    const windowMs = Number(st.pendingBatchWindowMs);
+    if (!st.pendingWakeTimer || !startedAt || !windowMs) return;
+    const remainingCap = Math.max(0, Math.max(30000, windowMs) - (Date.now() - startedAt));
+    clearTimeout(st.pendingWakeTimer);
+    armBatchWakeV2(key, st, Math.min(windowMs, remainingCap));
   }
 
   /**

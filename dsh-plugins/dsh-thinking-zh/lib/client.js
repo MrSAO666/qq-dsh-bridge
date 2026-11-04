@@ -615,6 +615,7 @@ window.__ModuleLoader__.load({
       ['autoReplyCheckMs', '旧版消息轮询间隔（秒）', '当前使用消息事件驱动，此旧选项已停用，仅保留历史值。', 'seconds'],
       ['replyCheck.windowMs', '回复后继续留意的时长（秒）', '仅私聊：窗口内收到回应时唤醒，没人回应不会空转。范围 5～300 秒。', 'seconds', 90000],
       ['wake.batchWindowMs', '合并连续消息的时间（秒）', '会话使用默认唤醒配置时应用；私聊如有单独配置，以私聊值为准。', 'seconds'],
+      ['wake.batchWindowMsPrivate', '私聊消息合并等待时间（秒）', '从最后一条私聊消息开始等待；连续文字和图片会合并，最长等待至少 30 秒。填 0 使用会话默认值。', 'seconds'],
       ['wait.defaultMs', '等待新消息的默认时长（秒）', '模型使用等待消息工具时的默认值。', 'seconds'],
       ['wait.defaultQuietMs', '判断对方说完的安静时间（秒）', '连续安静这么久后认为对方暂时说完。', 'seconds'],
       ['wake.maxWakePerHour', '每小时最多唤醒次数', '限制反复唤醒；私聊如有独立上限，以私聊值为准。'],
