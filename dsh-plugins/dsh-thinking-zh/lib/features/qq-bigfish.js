@@ -372,6 +372,10 @@ async function handlePersona(req, res) {
   const name = url.searchParams.get('name')
 
   if ((req.method || 'GET') === 'GET') {
+    if (url.searchParams.get('evolution') === '1') {
+      const r = await bridgeApi(env, '/api/socialV2/persona-evolution')
+      return json(res, 200, r.ok ? (r.data || {}) : { ok: false, error: r.error || `HTTP ${r.status}` })
+    }
     if (name) {
       const one = await bridgeApi(env, `/api/roles/content?name=${encodeURIComponent(name)}`)
       return json(res, 200, one.ok ? { ok: true, ...(one.data || {}) } : { ok: false, error: one.error || `HTTP ${one.status}` })
@@ -383,6 +387,14 @@ async function handlePersona(req, res) {
   let body
   try { body = await readJsonBody(req) } catch (error) { return json(res, 400, { ok: false, error: String(error.message || error) }) }
   const action = String(body.action || '')
+
+  if (action === 'evolution-save' || action === 'evolution-enable' || action === 'evolution-rollback') {
+    const payload = action === 'evolution-save' ? { action: 'save', content: body.content }
+      : action === 'evolution-enable' ? { action: 'enabled', enabled: body.enabled === true }
+        : { action: 'rollback', index: body.index }
+    const r = await bridgeApi(env, '/api/socialV2/persona-evolution', { method: 'POST', body: payload })
+    return json(res, 200, r.ok ? (r.data || {}) : { ok: false, error: r.error || `HTTP ${r.status}` })
+  }
 
   if (action === 'save') {
     // 已存在则 update，否则 create —— 先查列表，避免把已有角色当新建而报错

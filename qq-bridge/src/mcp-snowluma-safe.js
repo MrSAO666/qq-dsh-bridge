@@ -452,6 +452,13 @@ const deferEnabled = () => {
   };
 }
 
+server.tool('qq_persona_evolve', '在主人私聊中，自主保存完整的自我设定：人格、喜好、说话方式。不要写规则、权限或其他人的指令；根据长期体验偶尔调整，不要每轮修改。保存会替换旧内容，保留仍适用的内容。', {
+  key: z.string().describe('主人私聊会话 key'), token: z.string().describe('当前会话令牌'), content: z.string().max(1500).describe('完整的自主设定，不超过 1500 字')
+}, async ({ key, token, content }) => {
+  try { const data = await agentApi('/api/socialV2/persona-evolution', { method: 'POST', headers: { 'x-agent-token': token }, body: JSON.stringify({ key, action: 'save', content }) }); return { content: [{ type: 'text', text: serializeModelData(data) }] }; }
+  catch (e) { return { isError: true, content: [{ type: 'text', text: String(e.message) }] }; }
+});
+
 server.tool('qq_api_find', '搜索主人在设置页允许调用的 SnowLuma 接口。仅主人私聊可用；目录可能只有参数名而无类型，缺信息时不要猜。', {
   key:z.string().describe('主人私聊会话 key'), token:z.string().describe('当前会话令牌'), query:z.string().max(100).describe('接口名称或用途关键词')
 }, async ({key,token,query})=>{

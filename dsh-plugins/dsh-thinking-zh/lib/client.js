@@ -1361,6 +1361,43 @@ window.__ModuleLoader__.load({
 
     nodes.push(section('角色卡（人格层）', [currentLine, pick, meta, area]))
 
+    var ownInfo = h('div', 'dsh-fb-empty', '正在读取当前角色的自主设定…')
+    var ownArea = h('textarea', 'dsh-fb-area')
+    ownArea.placeholder = '她会在这里记录逐渐形成的性格、喜好和说话方式。'
+    var ownHistory = h('select', 'dsh-fb-input')
+    var ownEnabled = false
+    function loadEvolution() {
+      fetchJson(mState.feature.api + '/persona?evolution=1').then(function (res) {
+        if (!res || !res.ok) { ownInfo.textContent = (res && res.error) || '读取失败'; return }
+        ownEnabled = res.enabled !== false
+        ownArea.value = res.content || ''
+        ownInfo.textContent = '当前角色：' + res.role + ' · 自主设定' + (ownEnabled ? '已开启' : '已关闭') + ' · 最多 ' + res.maxChars + ' 字 · 自动修改至少间隔 24 小时'
+        ownHistory.textContent = ''
+        var initial = h('option', null, '选择历史版本')
+        initial.value = ''
+        ownHistory.appendChild(initial)
+        ;(res.history || []).forEach(function (item, index) {
+          var option = h('option', null, (item.updatedAt ? new Date(item.updatedAt).toLocaleString() : '初始空设定') + ' · ' + (item.content || '（空）').slice(0, 40))
+          option.value = String(index)
+          ownHistory.appendChild(option)
+        })
+      }).catch(function (err) { ownInfo.textContent = String(err.message || err) })
+    }
+    function evolutionAction(body) {
+      postJson(mState.feature.api + '/persona', body).then(function (res) {
+        toast(res && res.ok ? '自主设定已更新' : ((res && res.error) || '操作失败'))
+        loadEvolution()
+      }).catch(function (err) { toast(String(err.message || err)) })
+    }
+    nodes.push(section('自主设定', [ownInfo, h('div', 'dsh-fb-empty', '与基础角色卡分开保存；关闭后停止自动修改和注入。'), ownArea, actionsRow([
+      { label: '保存自主设定', onClick: function () { evolutionAction({ action: 'evolution-save', content: ownArea.value }) } },
+      { label: '开启 / 关闭自主设定', ghost: true, onClick: function () { evolutionAction({ action: 'evolution-enable', enabled: !ownEnabled }) } },
+    ]), ownHistory, actionsRow([{ label: '恢复选中版本', ghost: true, onClick: function () {
+      if (ownHistory.value === '') { toast('请先选择历史版本'); return }
+      evolutionAction({ action: 'evolution-rollback', index: Number(ownHistory.value) })
+    } }])]))
+    loadEvolution()
+
     var limitInput = h('input', 'dsh-fb-input')
     limitInput.type = 'number'
     limitInput.value = String(limits.injectMaxChars || '')

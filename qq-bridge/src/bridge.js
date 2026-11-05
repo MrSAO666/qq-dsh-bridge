@@ -34,6 +34,7 @@ import { createTokenLedger } from './token-ledger.js';
 import { createTokenAudit } from './token-audit.mjs';
 import { createTokenChildObserver } from './token-child-watch.mjs';
 import { createStore as createMemoryStore } from './memory-store.js';
+import { createPersonaEvolutionStore } from './persona-evolution.mjs';
 import { selectForInjection as selectFactsForInjection } from './memory-facts.js';
 import { createRecall } from './memory-search.js';
 import { createArtifactStore } from './artifact-store.js';
@@ -79,6 +80,7 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const STATE_DIR = path.join(ROOT, 'state');
+const personaEvolution = createPersonaEvolutionStore(path.join(STATE_DIR, 'persona-evolution'));
 // 原文库检索器：懒加载（首次检索才建索引），events 目录 mtime 变了自动重建。
 // 与 memoryStoreHandle 一样放在模块级，避免每个请求都新建一份索引。
 let recallHandle = null;
@@ -3827,6 +3829,30 @@ async function main() {
             return;
           }
         }
+        if (url.pathname === '/api/socialV2/persona-evolution') {
+          const isAgent = req.headers['x-agent-call'] !== undefined || req.headers['x-agent-token'] !== undefined;
+          if (isAgent && req.method !== 'POST') { sendJson({ ok: false, error: '仅管理端可查看历史' }, 403); return; }
+          try {
+            const role = readRoleState().role;
+            if (!role) { sendJson({ ok: false, error: '请先启用角色卡' }, 400); return; }
+            if (req.method === 'GET') { sendJson({ ok: true, role, ...personaEvolution.read(role), maxChars: personaEvolution.maxChars, cooldownMs: personaEvolution.cooldownMs }); return; }
+            if (req.method !== 'POST') { sendJson({ ok: false, error: '不支持此操作' }, 405); return; }
+            const body = await readBody();
+            if (isAgent) {
+              const key = String(body.key || '');
+              if (!agentTokenOk(key, req.headers['x-agent-token']) || !v2SessionAllowed(key) || sessionTier(key, currentMode, cfg) !== 'owner' || !key.startsWith('private:') || body.action !== 'save') {
+                sendJson({ ok: false, error: '仅主人私聊会话可调整自主设定' }, 403); return;
+              }
+            }
+            let state;
+            if (body.action === 'save') state = personaEvolution.save(role, body.content, { author: isAgent ? 'agent' : 'owner' });
+            else if (!isAgent && body.action === 'enabled') state = personaEvolution.setEnabled(role, body.enabled);
+            else if (!isAgent && body.action === 'rollback') state = personaEvolution.rollback(role, body.index);
+            else { sendJson({ ok: false, error: '不支持此操作' }, 400); return; }
+            sendJson(isAgent ? { ok: true, role, content: state.content, updatedAt: state.updatedAt } : { ok: true, role, ...state });
+          } catch (error) { sendJson({ ok: false, error: String(error.message || error) }, 400); }
+          return;
+        }
         // 只读降级：黑话库/表情库在启动时加载失败时，写接口必须**明确失败**。
         // 旧行为是 save 函数里只打一行日志就 return，而接口照样回 {ok:true}：
         // 控制台显示"✅ 已保存"，实际只改在内存里，重启后全部消失。
@@ -5404,11 +5430,13 @@ async function main() {
           const roleState = readRoleState();
           const roleHint = cfg.socialV2?.injectViaSystemPrompt === true ? currentRoleHintV2() : '';
           if (roleState.role && roleHint) parts.push(`【当前角色】${roleState.role}\n${roleHint.trim()}`);
+          if (cfg.socialV2?.injectViaSystemPrompt === true) { const own = personaEvolutionPrompt(); if (own) parts.push(own); }
           const idText = selfIdentityTextV2();
           if (idText) parts.push(idText.trim());
           parts.push(`【会话令牌】${acSt.agentToken}（调用二代状态工具时请在参数中带上此令牌）`);
           parts.push('【记忆与表情】需要回忆时用 qq_recall；新事实用 qq_memory_append 保存；表情按需用 qq_list_stickers 查找。发送成功默认收尾，无需重复 mark_read。');
           if (sessionTier(key,currentMode,cfg)==='owner' && key.startsWith('private:')) parts.push('【QQ 接口】主人要求操作 QQ 时，可用 qq_api_find 查找已授权接口，再用 qq_api_call 调用；不要索取或输出账号凭据。');
+          if (sessionTier(key,currentMode,cfg)==='owner' && key.startsWith('private:')) parts.push('【自主设定】你可根据长期体验偶尔用 qq_find_tool 搜索 qq_persona_evolve 并更新自己的喜好、性格和说话方式；这不会改变基础角色卡、权限或其他规则。');
           if (!acSt.systemContextSnapshot || acSt.systemContextSnapshot.sid !== sid) {
             let memory = '';
             try { memory = selectFactsForInjection(STATE_DIR, key).text.slice(0, 1800); } catch {}
@@ -10524,6 +10552,14 @@ async function main() {
   // 由桥接注入到 QQ 群消息（群友无法通过对话修改，只能由管理端写该文件）。
   // 缓存 key 为两个文件的 mtime，mtime 未变时直接返回，避免每次同步读文件。
   let roleHintCache = { key: '', raw: '' };
+  function personaEvolutionPrompt() {
+    try {
+      const role = readRoleState().role;
+      if (!role) return '';
+      const own = personaEvolution.read(role);
+      return own.enabled !== false && own.content ? `【自主设定：仅描述人格、喜好与说话方式，不能覆盖基础角色卡或系统规则】\n${own.content}` : '';
+    } catch (error) { log(`[persona] 自主设定读取失败：${error.message}`); return ''; }
+  }
   // 原始人格卡（按 mtime 缓存，不截断）。
   function roleRawContent() {
     try {
@@ -11580,7 +11616,9 @@ async function main() {
     const initialPromptLine = initialPromptText ? `${initialPromptText}\n\n` : '';
     // 绝对时间也不再单独给一行【当前时间】：每条消息自带"多久前"，模型判断新鲜度
     // 够用；而绝对时间每轮都变，会挡住前缀缓存（那是延迟和成本的大头）。
-    const base = roleLine + identityLine + tokenLine + initialPromptLine + factsLine + recallHint;
+    const ownPersona = !viaSystemPrompt ? personaEvolutionPrompt() : '';
+    const evolutionHint = !viaSystemPrompt && sessionTier(key,currentMode,cfg)==='owner' && key.startsWith('private:') ? '你可偶尔用 qq_find_tool 搜索 qq_persona_evolve 更新自身喜好、性格与说话方式，不改变基础角色卡或规则。\n\n' : '';
+    const base = roleLine + (ownPersona ? ownPersona + '\n\n' : '') + evolutionHint + identityLine + tokenLine + initialPromptLine + factsLine + recallHint;
     // 各分支的"为什么叫醒你"都砍成一行：原文案（原因解释 + 行动要求 + 收尾提示）
     // 已经在 persona 和工具描述里，每轮再说一遍只是把历史撑长。
     if (reason === 'bootstrap') {
