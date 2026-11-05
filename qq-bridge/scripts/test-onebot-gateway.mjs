@@ -26,7 +26,8 @@ try {
     throw Error('unexpected URL');
   };
   const before=g.config();
-  assert.deepEqual(await g.syncCatalog({url:'http://127.0.0.1:5099',password:'password-secret',totp:''},fake),{total:219,available:219});
+  assert.deepEqual(await g.syncCatalog({url:'http://127.0.0.1:5099',password:'password-secret',totp:''},fake),{total:219,available:219,added:218,removed:2});
+  assert.deepEqual(g.stats(),{total:219,available:219});
   assert.equal(logout,true);
   assert.equal(g.list().length,219);
   assert.deepEqual(g.config(),before);

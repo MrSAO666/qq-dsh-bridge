@@ -12,11 +12,13 @@ const isObject=x=>x!==null && typeof x==='object' && !Array.isArray(x);
 export function createOnebotGateway({directory,catalogFile,request,now=Date.now}) {
   if(!path.isAbsolute(directory)||!path.isAbsolute(catalogFile)||typeof request!=='function')throw Error('网关配置无效');
   const configFile=path.join(directory,'config.json'),logFile=path.join(directory,'audit.jsonl'),localCatalog=path.join(directory,'catalog.json');
-  function catalog(){
+  function rawCatalog(){
     let raw;try{raw=JSON.parse(fs.readFileSync(fs.existsSync(localCatalog)?localCatalog:catalogFile,'utf8'))}catch{return []}
     if(isObject(raw))raw=raw.actions;
-    if(!Array.isArray(raw))return [];
-    return raw.filter(x=>isObject(x)&&typeof x.name==='string'&&NAME.test(x.name)&&!SECRET.test(x.name))
+    return Array.isArray(raw)?raw:[];
+  }
+  function catalog(){
+    return rawCatalog().filter(x=>isObject(x)&&typeof x.name==='string'&&NAME.test(x.name)&&!SECRET.test(x.name))
       .slice(0,500).map(x=>({name:x.name,readOnly:x.readOnly===true,summary:String(x.summary||'').slice(0,250),params:Array.isArray(x.params)?x.params.map(p=>typeof p==='string'?p:p?.name).filter(p=>typeof p==='string'&&NAME.test(p)).slice(0,40):[],paramDetails:Array.isArray(x.params)?x.params.filter(isObject).slice(0,40).map(p=>({name:p.name,type:typeof p.type==='string'?p.type.slice(0,50):'',required:p.required===true,desc:typeof p.desc==='string'?p.desc.slice(0,300):'',schema:isObject(p.schema)?p.schema:null})):[]}));
   }
   async function syncCatalog({url,password,totp},fetchImpl=globalThis.fetch){
@@ -24,7 +26,7 @@ export function createOnebotGateway({directory,catalogFile,request,now=Date.now}
     const local=new Set(['127.0.0.1','localhost','::1',...Object.values(os.networkInterfaces()).flat().filter(Boolean).map(x=>x.address)]);
     if(!['http:','https:'].includes(target.protocol)||!local.has(target.hostname.replace(/^\[|\]$/g,''))||target.username||target.password||target.pathname!=='/'||target.search||target.hash)throw Error('只允许本机监听的 SnowLuma WebUI 地址');
     if(typeof password!=='string'||!password||password.length>512||typeof totp!=='string'||totp.length>32)throw Error('登录信息无效');
-    const base=target.origin;let session='';
+    const base=target.origin;let session='';const previous=new Set(rawCatalog().map(x=>x.name));
     try{
       let r=await fetchImpl(base+'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password,...(totp?{totp}:{})}),redirect:'error',signal:AbortSignal.timeout(12000)});
       if(!r.ok)throw Error('WebUI 登录失败');let data=await r.json();
@@ -37,7 +39,8 @@ export function createOnebotGateway({directory,catalogFile,request,now=Date.now}
       if(data.actions.some(x=>!isObject(x)||typeof x.name!=='string'||!NAME.test(x.name)||!Array.isArray(x.params)))throw Error('接口目录格式无效');
       fs.mkdirSync(directory,{recursive:true,mode:0o700});const tmp=localCatalog+'.'+crypto.randomUUID()+'.tmp';
       try{fs.writeFileSync(tmp,JSON.stringify({actions:data.actions}),{mode:0o600,flag:'wx'});fs.renameSync(tmp,localCatalog)}finally{try{fs.unlinkSync(tmp)}catch{}}
-      return {total:data.actions.length,available:catalog().length};
+      const current=new Set(data.actions.map(x=>x.name));
+      return {total:data.actions.length,available:catalog().length,added:[...current].filter(x=>!previous.has(x)).length,removed:[...previous].filter(x=>!current.has(x)).length};
     }finally{if(session)try{await fetchImpl(base+'/api/logout',{method:'POST',headers:{'x-snowluma-token':session},redirect:'error',signal:AbortSignal.timeout(5000)})}catch{}}
   }
   function config(){
@@ -137,5 +140,5 @@ export function createOnebotGateway({directory,catalogFile,request,now=Date.now}
     finally{audit(typeof action==='string'&&NAME.test(action)?action:'invalid',outcome)}
   }
   function logs(){try{return fs.readFileSync(logFile,'utf8').split('\n').filter(Boolean).slice(-100).reverse().map(x=>JSON.parse(x))}catch{return []}}
-  return {config,saveConfig,list,call,logs,syncCatalog};
+  return {config,saveConfig,list,call,logs,syncCatalog,stats:()=>({total:rawCatalog().length,available:catalog().length})};
 }

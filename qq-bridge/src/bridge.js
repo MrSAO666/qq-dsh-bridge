@@ -3724,7 +3724,7 @@ async function main() {
           const isAgent=req.headers['x-agent-call'] !== undefined || req.headers['x-agent-token'] !== undefined;
           if (url.pathname==='/api/onebot-gateway/settings') {
             if(isAgent){sendJson({ok:false,error:'仅管理端可修改网关设置'},403);return;}
-            if(req.method==='GET'){sendJson({ok:true,config:onebotGateway.config(),actions:onebotGateway.list(),logs:onebotGateway.logs()});return;}
+            if(req.method==='GET'){sendJson({ok:true,config:onebotGateway.config(),actions:onebotGateway.list(),stats:onebotGateway.stats(),logs:onebotGateway.logs()});return;}
             if(req.method==='POST'){const body=await readBody();sendJson({ok:true,config:onebotGateway.saveConfig(body.config)});return;}
           }
           if(url.pathname==='/api/onebot-gateway/sync'&&req.method==='POST') {
