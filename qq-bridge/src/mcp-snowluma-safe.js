@@ -411,6 +411,8 @@ const EAGER_TOOLS = new Set([
   'qq_wait_for_messages',
   'qq_set_wake_config',
   'qq_get_prompt',
+  'qq_api_find',
+  'qq_api_call',
   // 索引自己的两个入口必须常驻，否则模型连"怎么找工具"都看不到。
   'qq_find_tool',
   'qq_call_tool'
@@ -449,6 +451,19 @@ const deferEnabled = () => {
     return undefined;
   };
 }
+
+server.tool('qq_api_find', '搜索主人在设置页允许调用的 SnowLuma 接口。仅主人私聊可用；目录可能只有参数名而无类型，缺信息时不要猜。', {
+  key:z.string().describe('主人私聊会话 key'), token:z.string().describe('当前会话令牌'), query:z.string().max(100).describe('接口名称或用途关键词')
+}, async ({key,token,query})=>{
+  try { const data=await agentApi('/api/onebot-gateway/find',{method:'POST',headers:{'x-agent-token':token},body:JSON.stringify({key,query})}); return {content:[{type:'text',text:serializeModelData(data)}]}; }
+  catch(e){return {isError:true,content:[{type:'text',text:String(e.message)}]};}
+});
+server.tool('qq_api_call', '调用主人允许的 SnowLuma 接口；先用 qq_api_find 查参数。仅在主人授权的目标和操作范围内使用。接口接受不等于实际生效；结果未知时不要自动重试。', {
+  key:z.string().describe('主人私聊会话 key'),token:z.string().describe('当前会话令牌'),action:z.string().max(80).describe('已允许的接口名'),args:z.record(z.string(),z.any()).describe('接口参数 JSON 对象')
+}, async ({key,token,action,args})=>{
+  try { const data=await agentApi('/api/onebot-gateway/call',{method:'POST',headers:{'x-agent-token':token},body:JSON.stringify({key,action,args}),timeoutMs:60000}); return {content:[{type:'text',text:serializeModelData(data.result)}]}; }
+  catch(e){return {isError:true,content:[{type:'text',text:String(e.message)}]};}
+});
 
 server.tool(
   'qq_status',

@@ -251,3 +251,8 @@ dsh plugin --profile web add dsh-video-storyboard@0.6.5
 某些 DSH Web 安装未暴露插件的可选 peer `@deepseek-ai/dsh-tools`，此时需将服务环境变量 `DSH_TOOLS_PATH` 指向当前 DSH 安装树内该包的 `lib/index.js`，随后重启 DSH 与桥接；不应因此再安装另一套宿主或无关插件。以插件实际注册并返回图片为准，不能只看包已安装。
 
 B站登录态复用是显式开启的：将 `~/.dsh/video.json` 的 `cookies` 设置为 `~/.dsh/bili-video-cookies.txt` 的实际绝对路径。视频工具执行前，桥接守卫会从已有的 `state/bili/bili_credential.json` 刷新这个专用 Netscape Cookie 文件（权限600）；缺失或不完整凭据会删除旧导出并拒绝调用。自定义 Cookie 文件不会被覆盖。Cookie、视频缓存和运行状态不得提交仓库。
+# SnowLuma QQ 接口网关
+
+在悬浮球的「QQ 大肥鱼 → QQ 接口」中可管理网关。首次使用和 SnowLuma 升级后，可填写本机 WebUI 地址、WebUI 密码及（如启用）二次验证码，点击「同步接口目录」，以当前实例的接口为准。密码与临时登录令牌不会保存；同步后原有授权保留，新接口默认不授权，需逐项勾选并保存。目录中涉及凭据的接口不会开放。
+
+主人私聊可通过 `qq_api_find` 查询已授权接口，并由 `qq_api_call` 调用；群聊和其他会话不能使用。管理界面显示调用结果记录；接口接受请求并不等于 QQ 侧实际变更已确认。通用参数受大小和类型限制，文件和链接类参数默认不开放，头像及收藏表情只接受符合限制的 base64 图片。若未同步，界面使用项目附带的旧目录，数量可能与实际版本不一致。

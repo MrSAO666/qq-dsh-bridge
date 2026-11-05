@@ -47,6 +47,7 @@ import { readBiliLogs } from './bili-log.mjs';
 import { createBiliAutomation } from './bili-automation.mjs';
 import { createXiaoheiheService } from './xiaoheihe-service.mjs';
 import { createXiaoheiheAutomation } from './xiaoheihe-automation.mjs';
+import { createOnebotGateway } from './onebot-gateway.mjs';
 import { blocksOtherPlatform } from './background-arbitration.mjs';
 import { DEFAULT_XIAOHEIHE_CONFIG, normalizeXiaoheiheConfig } from './xiaoheihe-config.mjs';
 import {
@@ -117,6 +118,8 @@ const DEFERRED_RESIDENT_TOOLS = new Set([
   'qq_mark_read',
   'qq_set_wake_config',
   'qq_get_prompt',
+  'qq_api_find',
+  'qq_api_call',
   'qq_find_tool',
   'qq_call_tool'
 ]);
@@ -3495,6 +3498,7 @@ async function main() {
   }
 
   function startConsoleServer() {
+    const onebotGateway=createOnebotGateway({directory:path.join(STATE_DIR,'onebot-gateway'),catalogFile:path.join(ROOT,'_snowluma-catalog.json'),request:(action,args)=>bot.request(action,args)});
     const port = cfg.consolePort ?? 3100;
     // 控制台鉴权：优先用 config.consoleToken，未配置则自动生成并持久化，不再默认无鉴权。
     // 使用 let 以便控制台内手动修改令牌后热更新。
@@ -3716,6 +3720,25 @@ async function main() {
         }
       }
       try {
+        if (url.pathname.startsWith('/api/onebot-gateway/')) {
+          const isAgent=req.headers['x-agent-call'] !== undefined || req.headers['x-agent-token'] !== undefined;
+          if (url.pathname==='/api/onebot-gateway/settings') {
+            if(isAgent){sendJson({ok:false,error:'仅管理端可修改网关设置'},403);return;}
+            if(req.method==='GET'){sendJson({ok:true,config:onebotGateway.config(),actions:onebotGateway.list(),logs:onebotGateway.logs()});return;}
+            if(req.method==='POST'){const body=await readBody();sendJson({ok:true,config:onebotGateway.saveConfig(body.config)});return;}
+          }
+          if(url.pathname==='/api/onebot-gateway/sync'&&req.method==='POST') {
+            if(isAgent){sendJson({ok:false,error:'仅管理端可同步目录'},403);return;}
+            const body=await readBody();const result=await onebotGateway.syncCatalog({url:body.url,password:body.password,totp:body.totp||''});sendJson({ok:true,result});return;
+          }
+          if (req.method==='POST' && ['/api/onebot-gateway/find','/api/onebot-gateway/call'].includes(url.pathname)) {
+            const body=await readBody(); const key=String(body.key||''); const token=req.headers['x-agent-token'];
+            if(!isAgent||!agentTokenOk(key,token)||!v2SessionAllowed(key)||sessionTier(key,currentMode,cfg)!=='owner'||!key.startsWith('private:')){sendJson({ok:false,error:'仅主人私聊会话可以使用网关'},403);return;}
+            if(url.pathname.endsWith('/find')){sendJson({ok:true,actions:onebotGateway.list(body.query).filter(x=>x.allowed).slice(0,20)});return;}
+            const result=await onebotGateway.call(body.action,body.args);sendJson({ok:true,result});return;
+          }
+          sendJson({ok:false,error:'网关接口不存在'},404);return;
+        }
         if (url.pathname.startsWith('/api/xiaoheihe/')) {
           if (req.headers['x-agent-call'] !== undefined || req.headers['x-agent-token'] !== undefined) { sendJson({ ok:false, error:'该接口仅供管理端使用' }, 403); return; }
           const service = getXiaoheiheService();
@@ -5385,6 +5408,7 @@ async function main() {
           if (idText) parts.push(idText.trim());
           parts.push(`【会话令牌】${acSt.agentToken}（调用二代状态工具时请在参数中带上此令牌）`);
           parts.push('【记忆与表情】需要回忆时用 qq_recall；新事实用 qq_memory_append 保存；表情按需用 qq_list_stickers 查找。发送成功默认收尾，无需重复 mark_read。');
+          if (sessionTier(key,currentMode,cfg)==='owner' && key.startsWith('private:')) parts.push('【QQ 接口】主人要求操作 QQ 时，可用 qq_api_find 查找已授权接口，再用 qq_api_call 调用；不要索取或输出账号凭据。');
           if (!acSt.systemContextSnapshot || acSt.systemContextSnapshot.sid !== sid) {
             let memory = '';
             try { memory = selectFactsForInjection(STATE_DIR, key).text.slice(0, 1800); } catch {}

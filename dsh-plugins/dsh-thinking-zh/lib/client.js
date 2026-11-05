@@ -589,6 +589,7 @@ window.__ModuleLoader__.load({
     { id: 'status', label: '状态' },
     { id: 'rhythm', label: '回复节奏' },
     { id: 'bili', label: 'B站' },
+    { id: 'onebot-gateway', label: 'QQ 接口' },
     { id: 'xiaoheihe', label: '小黑盒' },
     { id: 'persona', label: '人格' },
     { id: 'tokens', label: 'Token 花费' },
@@ -800,6 +801,7 @@ window.__ModuleLoader__.load({
     var url = f.api
     if (tabId === 'rhythm') url = f.api + '/settings'
     else if (tabId === 'bili') url = f.api + '/bili'
+    else if (tabId === 'onebot-gateway') url = f.api + '/onebot-gateway'
     else if (tabId === 'xiaoheihe') url = f.api + '/xiaoheihe'
     else if (tabId === 'persona') url = f.api + '/persona'
     else if (tabId === 'tokens') url = f.api + '/tokens?' + Object.keys(tokenQuery).map(function (key) { return encodeURIComponent(key) + '=' + encodeURIComponent(tokenQuery[key]) }).join('&')
@@ -832,6 +834,7 @@ window.__ModuleLoader__.load({
     if (mState.tab === 'status') return renderStatusTab(d)
     if (mState.tab === 'rhythm') return renderRhythmTab(d)
     if (mState.tab === 'bili') return renderBiliTab(d)
+    if (mState.tab === 'onebot-gateway') return renderOnebotGatewayTab(d)
     if (mState.tab === 'xiaoheihe') return renderXiaoheiheTab(d)
     if (mState.tab === 'persona') return renderPersonaTab(d)
     if (mState.tab === 'tokens') return renderTokensTab(d)
@@ -1216,6 +1219,24 @@ window.__ModuleLoader__.load({
         renderRhythmTab(mState.data)
       }
     })
+  }
+
+  function renderOnebotGatewayTab(d) {
+    var cfg=d.config||{}, allowed=new Set(cfg.allowed||[]), actions=Array.isArray(d.actions)?d.actions:[], root=h('div','dsh-bili'),hero=h('div','dsh-bili-hero')
+    hero.appendChild(h('div','dsh-bili-eyebrow','ONEBOT · 接口网关'));hero.appendChild(h('h3',null,'QQ 接口权限'));hero.appendChild(h('p',null,'仅主人私聊可使用已允许的接口。目录参数可能不完整，请核对后再启用。'));root.appendChild(hero)
+    var syncBox=h('section','dsh-bili-card');syncBox.appendChild(h('h4',null,'同步当前 SnowLuma 接口目录'));syncBox.appendChild(h('p','dsh-bili-sub','使用 WebUI 密码读取当前实例的接口清单；密码和临时登录令牌不会保存。涉及凭据的接口不会开放。'))
+    var syncGrid=h('div','dsh-bili-grid');function syncField(title,type,value){var f=h('div','dsh-bili-field'), l=h('label',null,title), i=h('input','dsh-fb-input');i.type=type;i.value=value||'';i.autocomplete='off';f.appendChild(l);f.appendChild(i);syncGrid.appendChild(f);return i}
+    var syncUrl=syncField('SnowLuma WebUI 地址','text','http://'+location.hostname+':5099'),syncPassword=syncField('WebUI 密码','password',''),syncTotp=syncField('二次验证码（如已开启）','password','');syncBox.appendChild(syncGrid)
+    var syncStatus=h('div','dsh-bili-sub','');syncStatus.setAttribute('aria-live','polite');syncBox.appendChild(syncStatus)
+    syncBox.appendChild(actionsRow([{label:'同步接口目录',onClick:function(){if(!syncPassword.value){syncStatus.textContent='请输入 WebUI 密码。';return}syncStatus.textContent='正在同步…';var payload={action:'sync',url:syncUrl.value,password:syncPassword.value,totp:syncTotp.value};syncPassword.value='';syncTotp.value='';postJson(mState.feature.api+'/onebot-gateway',payload).then(function(r){if(!r||!r.ok){syncStatus.textContent=(r&&r.error)||'同步失败';return}syncStatus.textContent='已读取 '+r.result.total+' 个接口；可开放 '+r.result.available+' 个。';fetchJson(mState.feature.api+'/onebot-gateway').then(function(next){if(next&&next.ok){actions=Array.isArray(next.actions)?next.actions:[];renderList()}})})}}]));root.appendChild(syncBox)
+    var panel=h('section','dsh-bili-card'),toggle=h('label','dsh-bili-toggle'),label=h('strong',null,'启用 QQ 接口网关'),enabled=document.createElement('input');enabled.type='checkbox';enabled.checked=cfg.enabled===true;toggle.appendChild(label);toggle.appendChild(enabled);panel.appendChild(toggle)
+    var search=h('input','dsh-fb-input');search.placeholder='搜索接口名或用途';panel.appendChild(search)
+    var listing=h('div','dsh-bili-log');panel.appendChild(listing)
+    function renderList(){listing.textContent='';var q=search.value.trim().toLowerCase(), visible=actions.filter(function(a){return !q||(String(a.name)+' '+String(a.summary)).toLowerCase().includes(q)});if(!visible.length){listing.appendChild(h('div','dsh-bili-logempty','没有匹配接口，或尚未取得能力目录。'));return}
+      visible.forEach(function(a){var row=h('label','dsh-bili-toggle'),info=h('span'),check=document.createElement('input');check.type='checkbox';check.checked=allowed.has(a.name);info.appendChild(h('strong',null,a.name+' · '+(a.summary||'未提供说明')));info.appendChild(h('small',null,(a.readOnly?'只读':'写操作')+' · 参数：'+((a.params||[]).join('、')||'无')+' · '+(a.schemaComplete?'含参数说明':'类型未由目录确认')));check.addEventListener('change',function(){if(check.checked)allowed.add(a.name);else allowed.delete(a.name)});row.appendChild(info);row.appendChild(check);listing.appendChild(row)})}
+    search.addEventListener('input',renderList);renderList();var result=h('div','dsh-bili-sub','');result.setAttribute('aria-live','polite');panel.appendChild(result)
+    panel.appendChild(actionsRow([{label:'保存网关权限',onClick:function(){postJson(mState.feature.api+'/onebot-gateway',{config:{enabled:enabled.checked,allowed:Array.from(allowed)}}).then(function(r){result.textContent=r&&r.ok?'网关设置已保存。':((r&&r.error)||'保存失败')})}}]));root.appendChild(panel)
+    var log=h('section','dsh-bili-card');log.appendChild(h('h4',null,'最近接口调用'));var rows=h('div','dsh-bili-log');log.appendChild(rows);if(!Array.isArray(d.logs)||!d.logs.length)rows.appendChild(h('div','dsh-bili-logempty','暂无调用记录。'));else d.logs.forEach(function(item){var row=h('div','dsh-bili-logrow'),stamp=new Date(item.time);row.appendChild(h('span','dsh-bili-logtime',isNaN(stamp.getTime())?'—':stamp.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false})));row.appendChild(h('span',null,item.action||'—'));row.appendChild(h('span','dsh-bili-logstate',({accepted:'已接受',rejected:'已拒绝',failed:'失败',unknown:'结果未知'})[item.result]||'—'));rows.appendChild(row)});root.appendChild(log);setBody([root])
   }
 
   function renderXiaoheiheTab(d) {

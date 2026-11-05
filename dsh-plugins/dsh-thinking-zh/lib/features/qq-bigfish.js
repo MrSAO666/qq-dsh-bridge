@@ -38,6 +38,7 @@ export const ROUTES = {
   settings: `${routePath}/settings`,
   bili: `${routePath}/bili`,
   xiaoheihe: `${routePath}/xiaoheihe`,
+  onebotGateway: `${routePath}/onebot-gateway`,
   persona: `${routePath}/persona`,
   tokens: `${routePath}/tokens`,
   stickers: `${routePath}/stickers`,
@@ -46,6 +47,16 @@ export const ROUTES = {
   access: `${routePath}/access`,
   backend: `${routePath}/backend`,
   diagnose: `${routePath}/diagnose`,
+}
+
+async function handleOnebotGateway(req,res) {
+  const env=bridgeEnv()
+  if(!env.ok)return json(res,200,{ok:false,error:env.error})
+  if((req.method||'GET')==='GET') {const r=await bridgeApi(env,'/api/onebot-gateway/settings');return json(res,200,r.ok?r.data:{ok:false,error:r.error||r.data?.error||'网关不可用'})}
+  const body=await readJsonBody(req)
+  const sync=body.action==='sync'
+  const r=await bridgeApi(env,sync?'/api/onebot-gateway/sync':'/api/onebot-gateway/settings',{method:'POST',body:sync?{url:body.url,password:body.password,totp:body.totp}:{config:body.config},timeoutMs:30000})
+  return json(res,200,r.ok?r.data:{ok:false,error:r.error||r.data?.error||'保存失败'})
 }
 
 async function handleXiaoheihe(req, res) {
@@ -764,6 +775,7 @@ export function mount(ctx) {
     [ROUTES.settings, handleSettings],
     [ROUTES.bili, handleBili],
     [ROUTES.xiaoheihe, handleXiaoheihe],
+    [ROUTES.onebotGateway, handleOnebotGateway],
     [ROUTES.persona, handlePersona],
     [ROUTES.tokens, handleTokens],
     [ROUTES.stickers, handleStickers],
