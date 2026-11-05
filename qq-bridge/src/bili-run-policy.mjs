@@ -61,6 +61,11 @@ export function markBiliChildStarted(state, { id, childId, now = Date.now() }) {
   active.startedAt = now;
   active.deadlineAt = active.durationMs === null ? null : now + active.durationMs;
   active.status = 'running';
+  if (active.source === 'automatic') {
+    next.startedCounts ||= {};
+    const day = chinaClock(now).day;
+    next.startedCounts[day] = (next.startedCounts[day] || 0) + 1;
+  }
   return next;
 }
 
@@ -73,9 +78,10 @@ export function requestBiliTimeout(state, { id, now = Date.now() }) {
 
 // Clear only after a confirmed completion/cancellation, or if dispatch is known
 // to have failed before creating a child. Uncertain states must stay blocked.
-export function finishBiliRun(state, { id, confirmed }) {
+export function finishBiliRun(state, { id, confirmed, now = Date.now(), reason = 'completed' }) {
   const next = checked(state);
   if (!next.active || next.active.id !== id || confirmed !== true) throw new Error('刷站任务终止尚未确认');
+  next.lastFinished = { at: now, reason, startedAt: next.active.startedAt ?? null, source: next.active.source };
   next.active = null;
   return next;
 }

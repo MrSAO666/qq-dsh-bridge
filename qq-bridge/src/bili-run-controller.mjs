@@ -47,7 +47,7 @@ export function createBiliRunController({ stateFile, dispatch, interrupt, onErro
     } catch (err) {
       // Dispatch failure can be ambiguous (server may have accepted it).
       // Only a failure explicitly confirmed before dispatch may be cleared.
-      if (err?.safeNoDispatch === true && state.active?.id === id && state.active.status === 'reserved') persist(finishBiliRun(state, { id, confirmed: true }));
+      if (err?.safeNoDispatch === true && state.active?.id === id && state.active.status === 'reserved') persist(finishBiliRun(state, { id, confirmed: true, now: now(), reason: 'dispatch_failed' }));
       throw err;
     }
   }
@@ -55,8 +55,8 @@ export function createBiliRunController({ stateFile, dispatch, interrupt, onErro
     persist(markBiliChildStarted(state, { id, childId, now: startedAt }));
     arm();
   }
-  function confirmedFinished({ id }) {
-    persist(finishBiliRun(state, { id, confirmed: true }));
+  function confirmedFinished({ id, reason }) {
+    persist(finishBiliRun(state, { id, confirmed: true, now: now(), reason: reason || 'unknown' }));
     clearAlarm();
   }
   // Startup deliberately never clears an uncertain persisted task. Caller must

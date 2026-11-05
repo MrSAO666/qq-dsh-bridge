@@ -131,10 +131,36 @@ export function createOnebotGateway({directory,catalogFile,request,now=Date.now}
       validateArgs(action,args,meta);
       let result;
       try{result=await request(action,args)}catch{outcome='unknown';throw Error('请求结果未知，请先核实，不要自动重试')}
-      if(!result||result.status!=='ok'||result.retcode!==0){outcome='failed';throw Error('SnowLuma 未确认接口执行成功')}
+      if(!result||result.status!=='ok'||result.retcode!==0){
+        outcome='failed';
+        const code=Number.isSafeInteger(result?.retcode)?'（错误码 '+result.retcode+'）':'';
+        throw Error('SnowLuma 未确认接口执行成功'+code);
+      }
       outcome='accepted';
-      if(!meta.readOnly)return {status:'accepted',message:'接口已接受请求；实际生效情况尚未回读确认。'};
+      if(action==='set_qq_profile'||action==='set_self_longnick'){
+        const expected={};
+        if(action==='set_qq_profile'){
+          if(Object.hasOwn(args,'nickname'))expected.nickname=args.nickname;
+          if(Object.hasOwn(args,'sex'))expected.sex=['unknown','male','female'][args.sex];
+        }else expected.long_nick=args.longNick??args.long_nick;
+        const unverifiable=action==='set_qq_profile'&&Object.hasOwn(args,'personal_note')?['personal_note']:[];
+        let fields={};
+        try{
+          if(Object.keys(expected).length){
+            const login=await request('get_login_info',{});
+            if(login?.status!=='ok'||login?.retcode!==0||!Number.isSafeInteger(Number(login?.data?.user_id))||Number(login.data.user_id)<1)throw Error('readback unavailable');
+            const profile=await request('get_stranger_info',{user_id:Number(login.data.user_id)});
+            if(profile?.status!=='ok'||profile?.retcode!==0||!isObject(profile.data))throw Error('readback unavailable');
+            for(const [key,value] of Object.entries(expected))fields[key]=!Object.hasOwn(profile.data,key)?'unavailable':profile.data[key]===value?'matched':'not_matched';
+          }
+        }catch{for(const key of Object.keys(expected))fields[key]='unavailable';}
+        for(const key of unverifiable)fields[key]='unavailable';
+        const verified=Object.keys(fields).length>0&&Object.values(fields).every(x=>x==='matched');
+        outcome=verified?'verified':'unconfirmed';
+        return {status:verified?'verified':'unconfirmed',fields,message:verified?'资料已回读一致。':'SnowLuma 返回成功，但资料尚未回读一致或无法回读；可能存在同步延迟，也可能未生效，请勿自动重复提交。'};
+      }
       const safe=sanitize(result.data);if(Buffer.byteLength(JSON.stringify(safe))>24000)return {status:'accepted',message:'返回数据过大，已省略。'};
+      if(!meta.readOnly)return {status:'accepted',message:'SnowLuma 返回成功；该操作尚未回读确认实际效果，请勿自动重复提交。',data:safe};
       return {status:'accepted',data:safe};
     }catch(e){if(outcome==='rejected'&&e?.message==='SnowLuma 未确认接口执行成功')outcome='failed';throw e}
     finally{audit(typeof action==='string'&&NAME.test(action)?action:'invalid',outcome)}

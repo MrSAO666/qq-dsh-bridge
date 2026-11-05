@@ -8,6 +8,7 @@ export function watchBiliChild({ api, parentSessionId, runId, onStart, onEnd, on
   if (!['bili', 'xiaoheihe'].includes(labelPrefix)) throw new Error('子任务类型无效');
   const label = `${labelPrefix}-${runId}`;
   let socket, retry, stopped = false, childId = null, tracker, lastText = '', endReason = null;
+  const matchedCalls = new Set(), catalogs = new Map(), resolvedChildren = new Set();
   let readyResolve, readyReject;
   const ready = new Promise((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
   let readySettled = false;
@@ -41,6 +42,16 @@ export function watchBiliChild({ api, parentSessionId, runId, onStart, onEnd, on
       socket = ws;
       const parentStream = randomUUID(), childStream = randomUUID();
       let childOpened = false;
+      function bindChild(id, mode) {
+        if (childId && childId !== id) { onError(new Error('同一刷站任务出现多个子任务，需人工核实')); return; }
+        childId = id;
+        if (!tracker) tracker = createBiliChildEventTracker({ onStart: at => onStart({ childId, startedAt: at }), onEnd: at => { onEnd({ childId, endedAt: at, text: endReason === 'completed' ? lastText : '', reason: endReason }); stop(); } });
+        openChild(mode);
+      }
+      function correlate() {
+        if (resolvedChildren.size > 1) { onError(new Error('同一刷站任务匹配到多个子任务，需人工核实')); return; }
+        for (const id of resolvedChildren) if (catalogs.has(id)) bindChild(id, catalogs.get(id));
+      }
       function openChild(mode) {
         if (!childId || childOpened || ws.readyState !== 1) return;
         childOpened = true;
@@ -63,11 +74,22 @@ export function watchBiliChild({ api, parentSessionId, runId, onStart, onEnd, on
             if (value?.type === 'snapshot') settleReady();
             for (const record of records) {
               const e = record?.event || record;
-              if (e?.type !== 'subagent/catalog' || e.data?.label !== label || !e.data?.childId) continue;
-              if (childId && childId !== e.data.childId) throw new Error('同一刷站任务出现多个子任务');
-              childId = e.data.childId;
-              if (!tracker) tracker = createBiliChildEventTracker({ onStart: at => onStart({ childId, startedAt: at }), onEnd: at => { onEnd({ childId, endedAt: at, text: endReason === 'completed' ? lastText : '', reason: endReason }); stop(); } });
-              openChild(e.data.mode);
+              const d = e?.data || {};
+              if (e?.type === 'tool/call' && d.name === 'subagent' && d.callId) {
+                const args = typeof d.arguments === 'string' ? d.arguments : JSON.stringify(d.arguments || {});
+                if (args.includes(label)) matchedCalls.add(d.callId);
+              } else if (e?.type === 'tool/result') {
+                const m = d.message || {}, callId = m.toolCallId || m.source?.callId;
+                if (matchedCalls.has(callId) && !m.isError) {
+                  const result = (m.content || []).filter(x => x.type === 'text').map(x => x.text || '').join('\n');
+                  const match = result.match(/\bstarted subagent ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i);
+                  if (match) resolvedChildren.add(match[1]);
+                }
+              } else if (e?.type === 'subagent/catalog' && d.childId) {
+                catalogs.set(d.childId, d.mode);
+                if (d.label === label) resolvedChildren.add(d.childId);
+              }
+              correlate();
             }
           } else if (frame.streamId === childStream && tracker) {
             // Save complete assistant messages only; streamed reasoning is never sent.

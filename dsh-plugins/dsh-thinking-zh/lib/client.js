@@ -844,6 +844,15 @@ window.__ModuleLoader__.load({
     if (mState.tab === 'diagnose') return renderDiagnoseTab(d)
   }
 
+  function appendBrowseTiming(hero, run, today) {
+    function fmt(ms) { return ms ? new Date(ms).toLocaleString('zh-CN', { timeZone:'Asia/Shanghai', hour12:false }) : '—' }
+    var parts = ['今天确认启动 ' + ((run.startedCounts || {})[today] || 0) + ' 次']
+    if (run.reservedAt) parts.push('预留：' + fmt(run.reservedAt))
+    if (run.startedAt) parts.push('开始：' + fmt(run.startedAt))
+    if (run.lastFinished) parts.push('最近结束：' + fmt(run.lastFinished.at) + '（' + ({completed:'完成',dispatch_failed:'未派发',interrupted:'中断'}[run.lastFinished.reason] || '状态待核实') + '）')
+    hero.appendChild(h('p', 'dsh-bili-sub', parts.join(' · ')))
+  }
+
   function renderBiliTab(d) {
     var cfg = JSON.parse(JSON.stringify(d.config || {}))
     var root = h('div', 'dsh-bili')
@@ -854,8 +863,9 @@ window.__ModuleLoader__.load({
     hero.appendChild(h('div', 'dsh-bili-badge' + (d.implementationReady ? ' ready' : ''), d.implementationReady ? '● 刷站任务已接入' : '● 刷站任务尚未接入 · 自动刷站暂不会运行'))
     if (d.automation) {
       var today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
-      var runStatus = { reserved: '正在派发子任务', running: '子 Agent 正在浏览', stopping: '到时停止中' }[d.automation.active] || '等待下一次安排'
+      var runStatus = { reserved: '等待子任务确认；若长时间未变化请检查任务记录', running: '子 Agent 正在浏览', stopping: '到时停止中' }[d.automation.active] || '等待下一次安排'
       hero.appendChild(h('p', 'dsh-bili-sub', runStatus + ' · 今天已安排 ' + ((d.automation.counts || {})[today] || 0) + ' / ' + cfg.dailyRuns + ' 次'))
+      appendBrowseTiming(hero, d.automation, today)
     }
     root.appendChild(hero)
 
@@ -1253,8 +1263,9 @@ window.__ModuleLoader__.load({
     hero.appendChild(h('div', 'dsh-bili-badge' + (d.automationReady ? ' ready' : ''), d.automationReady ? '● 刷帖任务已接入' : '● 刷帖任务暂不可用'))
     if (d.automation) {
       var today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
-      var runStatus = { reserved: '等待子任务确认', running: '子 Agent 正在浏览', stopping: '到时停止中' }[d.automation.active] || '等待下一次安排'
+      var runStatus = { reserved: '等待子任务确认；若长时间未变化请检查任务记录', running: '子 Agent 正在浏览', stopping: '到时停止中' }[d.automation.active] || '等待下一次安排'
       hero.appendChild(h('p', 'dsh-bili-sub', runStatus + ' · 今天已安排 ' + ((d.automation.counts || {})[today] || 0) + ' / ' + ((d.config || {}).dailyRuns || 0) + ' 次'))
+      appendBrowseTiming(hero, d.automation, today)
     }
     root.appendChild(hero)
     var box = h('section', 'dsh-bili-card'), status = h('div', 'dsh-bili-sub', d.configured ? '● 已保存账号，登录有效性尚未验证。' : '● 尚未登录，请使用独立账号扫码。')

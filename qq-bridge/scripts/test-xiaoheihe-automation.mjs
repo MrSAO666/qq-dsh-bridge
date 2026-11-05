@@ -15,8 +15,7 @@ try {
   active=auto.snapshot().active;assert.equal(active.deadlineAt,time+20*60000);
   watches[0].onEnd({childId:'child',text:'摘要 BV1abcdefgh1'});
   assert.equal(auto.snapshot().active,null);assert.equal(reports.length,1);
-  await auto.tick();assert.equal(prompts.length,1,'任务结束后不能立即消耗下一次额度');
-  time+=8*3600000;await auto.tick();assert.equal(prompts.length,2);
+  await auto.tick();assert.equal(prompts.length,2,'取消最短间隔后可以安排下一次');
   auto.dispose();
   const restored=createXiaoheiheAutomation(opts);await restored.tick();assert.equal(watches.length,3,'重启后恢复监听保留中的任务');
   const reserved=restored.snapshot().active;

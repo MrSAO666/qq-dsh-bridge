@@ -3747,7 +3747,7 @@ async function main() {
           if (req.method === 'GET' && url.pathname === '/api/xiaoheihe/status') {
             let logs=[]; try { logs=fs.readFileSync(path.join(xiaoheiheDir,'events.jsonl'),'utf8').trim().split('\n').slice(-60).map(x=>JSON.parse(x)).reverse(); } catch {}
             const run=xiaoheiheAutomation?.snapshot();
-            sendJson({ ok:true, ...service.status(), config:getXiaoheiheConfig(), automationReady:!!xiaoheiheAutomation, automation:run?{active:run.active?.status??null,counts:run.counts,lastAutomaticAt:run.lastAutomaticAt??null}:null, logs }); return;
+            sendJson({ ok:true, ...service.status(), config:getXiaoheiheConfig(), automationReady:!!xiaoheiheAutomation, automation:run?{active:run.active?.status??null,counts:run.counts,startedCounts:run.startedCounts||{},reservedAt:run.active?.reservedAt??null,startedAt:run.active?.startedAt??null,lastFinished:run.lastFinished??null,lastAutomaticAt:run.lastAutomaticAt??null}:null, logs }); return;
           }
           if (req.method === 'POST' && url.pathname === '/api/xiaoheihe/config') { const body=await readBody(); sendJson({ok:true,config:saveXiaoheiheConfig(body.config)}); return; }
           if (req.method === 'POST' && url.pathname === '/api/xiaoheihe/login') {
@@ -3765,7 +3765,7 @@ async function main() {
           if (req.method === 'GET' && url.pathname === '/api/bili/config') {
             const run = biliAutomation?.snapshot();
             sendJson({ ok: true, config: getBiliConfig(), implementationReady: !!biliAutomation,
-              automation: run ? { active: run.active?.status ?? null, counts: run.counts, lastAutomaticAt: run.lastAutomaticAt ?? null } : null }); return;
+              automation: run ? { active: run.active?.status ?? null, counts: run.counts, startedCounts:run.startedCounts||{}, reservedAt:run.active?.reservedAt??null, startedAt:run.active?.startedAt??null, lastFinished:run.lastFinished??null, lastAutomaticAt: run.lastAutomaticAt ?? null } : null }); return;
           }
           if (req.method === 'GET' && url.pathname === '/api/bili/logs') { sendJson({ ok: true, ...readBiliLogs(TOOL_LOG_FILE, 80, path.join(biliDir, 'events.jsonl')) }); return; }
           if (req.method === 'POST' && url.pathname === '/api/bili/config') {

@@ -5,7 +5,7 @@ import { chinaClock } from './proactive-policy.mjs';
 // Adapter is deliberately separate from the chat scheduler. DSH delivers
 // subagent completion to its parent; it is not forwarded independently to QQ.
 export function createBiliAutomation({ stateFile, api, getConfig, getParent, dispatchPrompt, onReport, log = () => {}, now = Date.now, watch = watchBiliChild }) {
-  let watcher = null, ticking = false, disposed = false;
+  let watcher = null, watcherAt = 0, ticking = false, disposed = false;
   const controller = createBiliRunController({ stateFile, now, onError: e => log(`B站任务异常：${e.message}`),
     dispatch: async ({ id, context }) => {
       attach(id, context.parentSessionId);
@@ -24,6 +24,7 @@ export function createBiliAutomation({ stateFile, api, getConfig, getParent, dis
   });
   function attach(id, parentSessionId) {
     watcher?.stop();
+    watcherAt = now();
     watcher = watch({ api, parentSessionId, runId: id, onError: e => log(`B站监听异常：${e.message}`),
       onStart({ childId, startedAt }) {
         try {
@@ -35,13 +36,13 @@ export function createBiliAutomation({ stateFile, api, getConfig, getParent, dis
           log('B站子任务已开始，时长从此刻计起');
         } catch (e) { log(`B站开始事件处理失败：${e.message}`); }
       },
-      onEnd({ childId, text }) {
+      onEnd({ childId, text, reason }) {
         try {
           const active = controller.snapshot().active;
           if (!active || active.id !== id || active.childId !== childId) throw new Error('结束事件与活动任务不匹配');
           // The caller may observe completion without forwarding it to QQ.
           if (text) onReport({ id, text, target: active.reportTarget });
-          controller.confirmedFinished({ id });
+          controller.confirmedFinished({ id, reason });
           watcher = null;
           log('B站子任务已结束');
         } catch (e) { log(`B站结束事件处理失败：${e.message}`); }
@@ -55,6 +56,7 @@ export function createBiliAutomation({ stateFile, api, getConfig, getParent, dis
     try {
       const state = controller.snapshot();
       if (state.active) {
+        if (watcher && state.active.status === 'reserved' && now() - watcherAt >= 5 * 60 * 1000) { watcher.stop(); watcher = null; }
         if (!watcher && state.active.parentSessionId) attach(state.active.id, state.active.parentSessionId);
         if (state.active.status === 'stopping' && state.active.childId && state.active.parentSessionId) {
           const r = await api.callUnary('subagents/interruptByParent', { childSessionId: state.active.childId, parentSessionId: state.active.parentSessionId, mode: 'continuable' });
@@ -66,8 +68,6 @@ export function createBiliAutomation({ stateFile, api, getConfig, getParent, dis
       if (!config.enabled || !config.autoEnabled || config.dailyRuns === 0) return;
       const day = chinaClock(now()).day;
       if ((state.counts[day] || 0) >= config.dailyRuns) return;
-      // Spread automatic sessions through the day; the setting is an upper bound.
-      if (state.lastAutomaticAt && now() - state.lastAutomaticAt < 86400000 / config.dailyRuns) return;
       const parent = await getParent();
       if (!parent) return;
       const parentSessionId = typeof parent === 'string' ? parent : parent.sessionId;
@@ -94,6 +94,7 @@ function buildPrompt(id, config) {
     '回复评论应填写目标评论编号及用户名；不要在评论中写 @。',
     '请子任务简短汇报确实读到的内容，并附上对应 BV 号及视频链接。',
     '收到子任务结果后，按现有长期记忆策略判断是否记录真正有长期价值的兴趣或发现；记录时注明来源与时间，不要将未经核实的信息写成事实。',
+    '子任务返回后想一想：有没有什么内容值得分享给主人？如有，在合适的主动聊天时自然分享，附上来源；没有就不必分享。',
     '这是后台任务，只向父会话汇报；不要调用 QQ 发送工具，也不要主动向主人发送刷站报告。',
   ].join('\n');
 }
