@@ -1366,12 +1366,24 @@ window.__ModuleLoader__.load({
     ownArea.placeholder = '她会在这里记录逐渐形成的性格、喜好和说话方式。'
     var ownHistory = h('select', 'dsh-fb-input')
     var ownEnabled = false
-    function loadEvolution() {
+    var ownStatus = h('strong', null, '状态：读取中')
+    var ownMessage = h('div', 'dsh-fb-empty')
+    var ownToggleRow = h('label', 'dsh-bili-toggle')
+    var ownToggle = document.createElement('input')
+    ownToggle.type = 'checkbox'
+    ownToggle.disabled = true
+    ownToggle.setAttribute('aria-label', '允许自主调整人格、喜好和说话方式')
+    ownToggleRow.appendChild(ownStatus)
+    ownToggleRow.appendChild(ownToggle)
+    function loadEvolution(preserveDraft) {
       fetchJson(mState.feature.api + '/persona?evolution=1').then(function (res) {
-        if (!res || !res.ok) { ownInfo.textContent = (res && res.error) || '读取失败'; return }
+        if (!res || !res.ok) { ownInfo.textContent = (res && res.error) || '读取失败'; ownStatus.textContent = '状态：未知'; ownToggle.disabled = true; return }
         ownEnabled = res.enabled !== false
-        ownArea.value = res.content || ''
-        ownInfo.textContent = '当前角色：' + res.role + ' · 自主设定' + (ownEnabled ? '已开启' : '已关闭') + ' · 最多 ' + res.maxChars + ' 字 · 自动修改至少间隔 24 小时'
+        ownToggle.checked = ownEnabled
+        ownToggle.disabled = false
+        ownStatus.textContent = ownEnabled ? '自主设定：已开启' : '自主设定：已关闭'
+        if (!preserveDraft) ownArea.value = res.content || ''
+        ownInfo.textContent = '当前角色：' + res.role + ' · 最多 ' + res.maxChars + ' 字 · 自动修改至少间隔 24 小时'
         ownHistory.textContent = ''
         var initial = h('option', null, '选择历史版本')
         initial.value = ''
@@ -1381,17 +1393,19 @@ window.__ModuleLoader__.load({
           option.value = String(index)
           ownHistory.appendChild(option)
         })
-      }).catch(function (err) { ownInfo.textContent = String(err.message || err) })
+      }).catch(function (err) { ownStatus.textContent = '状态：未知'; ownToggle.disabled = true; ownInfo.textContent = String(err.message || err) })
     }
     function evolutionAction(body) {
+      ownToggle.disabled = true
+      ownMessage.textContent = '正在保存…'
       postJson(mState.feature.api + '/persona', body).then(function (res) {
-        toast(res && res.ok ? '自主设定已更新' : ((res && res.error) || '操作失败'))
-        loadEvolution()
-      }).catch(function (err) { toast(String(err.message || err)) })
+        ownMessage.textContent = res && res.ok ? (body.action === 'evolution-enable' ? (body.enabled ? '已开启并保存' : '已关闭并保存') : '已保存') : ((res && res.error) || '操作失败')
+        loadEvolution(body.action === 'evolution-enable' || !(res && res.ok))
+      }).catch(function (err) { ownMessage.textContent = String(err.message || err); loadEvolution(true) })
     }
-    nodes.push(section('自主设定', [ownInfo, h('div', 'dsh-fb-empty', '与基础角色卡分开保存；关闭后停止自动修改和注入。'), ownArea, actionsRow([
+    ownToggle.addEventListener('change', function () { evolutionAction({ action: 'evolution-enable', enabled: ownToggle.checked }) })
+    nodes.push(section('自主设定', [ownToggleRow, ownInfo, h('div', 'dsh-fb-empty', '她自主修改时会自动保存；你手动编辑文字后，点击“保存自主设定”。关闭后停止自主修改和注入。'), ownMessage, ownArea, actionsRow([
       { label: '保存自主设定', onClick: function () { evolutionAction({ action: 'evolution-save', content: ownArea.value }) } },
-      { label: '开启 / 关闭自主设定', ghost: true, onClick: function () { evolutionAction({ action: 'evolution-enable', enabled: !ownEnabled }) } },
     ]), ownHistory, actionsRow([{ label: '恢复选中版本', ghost: true, onClick: function () {
       if (ownHistory.value === '') { toast('请先选择历史版本'); return }
       evolutionAction({ action: 'evolution-rollback', index: Number(ownHistory.value) })
