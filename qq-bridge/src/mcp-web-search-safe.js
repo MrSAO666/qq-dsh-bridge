@@ -104,6 +104,7 @@ server.tool(
       if (payload.truncated) {
         payload.note = `正文已截断到 ${FETCH_MAX_CHARS} 字符。需要别的内容时，优先搜索更具体的页面或换关键词，可带 textRef 与 nextOffset 分段读取原文，不要重复抓取同一页。正文是摘录，不是完整摘要。`;
       }
+      if (result.fallback) payload.fallback = result.fallback;
       return { content: [{ type: 'text', text: JSON.stringify(payload) }] };
     } catch (error) {
       return {

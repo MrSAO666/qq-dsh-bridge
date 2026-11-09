@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { imageFileFromSegment } from '../src/image-file.mjs';
+const segment = (name, extra = {}) => ({type:'file', data:{name, url:'https://example.com/file', file_size:395486, ...extra}});
+assert.deepEqual(imageFileFromSegment(segment('photo.JPG')), {kind:'image-file',url:'https://example.com/file',size:395486});
+for (const ext of ['png','jpeg','gif','webp']) assert.ok(imageFileFromSegment(segment('x.' + ext)));
+assert.equal(imageFileFromSegment(segment('x.pdf')), null);
+assert.equal(imageFileFromSegment(segment('x.jpg.exe')), null);
+assert.equal(imageFileFromSegment(segment('x.jpg',{url:'file:///etc/passwd'})), null);
+assert.equal(imageFileFromSegment({type:'image',data:{name:'x.jpg',url:'https://example.com'}}), null);
+console.log('image-file tests passed');

@@ -27,6 +27,7 @@ import * as proactivePolicy from '../src/proactive-policy.mjs';
 import { createSendTiming } from '../src/send-timing.mjs';
 import { createImageObservations } from '../src/image-observations.mjs';
 import { createMediaFetchCache } from '../src/media-fetch-cache.mjs';
+import { createNekowhaleClient } from '../src/nekowhale-client.mjs';
 import { selectForInjection as selectFactsForInjection } from '../src/memory-facts.js';
 import yaml from 'js-yaml';
 import { createTokenAudit } from '../src/token-audit.mjs';
@@ -205,7 +206,7 @@ export async function bridgeHarness({ config = {}, savedState, files = {}, globa
     NodeApiClient: class { constructor() { return api; } },
     SnowLumaWebSocketClient: FakeBot, text: (s) => s,
     discoverDshLaunchToken: () => '', unwrap, createTurnCollector,
-    ...markdown, ...sensitive, ...wait, ...safeFetch, ...forward, ...slang, ...sticker,
+    ...markdown, ...sensitive, ...wait, ...safeFetch, ...forward, ...slang, ...sticker, createNekowhaleClient,
     ...modelPrices, ...tokenLedger, ...voiceLib, ...stateAcl, ...presetPrompt, ...sendFileLib,
     ...roleCards, ...proactivePolicy, createSendTiming, createImageObservations, createMediaFetchCache, selectFactsForInjection, createTokenAudit, createTokenChildObserver,
     // 桥接的出图出口会调归一化（体积/动图抽帧）：VM 里必须能拿到这几个函数。

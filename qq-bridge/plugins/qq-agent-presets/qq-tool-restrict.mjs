@@ -133,7 +133,7 @@ const LOCAL_EXECUTION_TOOLS = [
   // 派生 agent 与编排（都能间接拿到 shell）
   'subagent', 'subagent_fork', 'list_subagent_models',
   'send_message', 'interrupt_agent', 'list_agents',
-  'mcp__xiaoheihe-read__xiaoheihe_feed', 'mcp__xiaoheihe-read__xiaoheihe_read_post',
+  'mcp__xiaoheihe-read__xiaoheihe_feed', 'mcp__xiaoheihe-read__xiaoheihe_read_post', 'mcp__xiaoheihe-read__xiaoheihe_comment',
   'mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video',
   'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment', 'mcp__bili-read__bili_send_dm', 'mcp__bili-read__bili_interaction_options', 'mcp__bili-read__bili_read_dm',
   'workflow', 'ralph',
@@ -306,7 +306,7 @@ const OWNER_GRANTABLE_TOOL_NAMES = new Set([
   // 仅 owner 私聊可调用内置子 Agent；其他会话仍使用 strict/readonly 白名单。
   'subagent', 'subagent_fork', 'list_subagent_models',
   'send_message', 'interrupt_agent', 'list_agents',
-  'mcp__xiaoheihe-read__xiaoheihe_feed', 'mcp__xiaoheihe-read__xiaoheihe_read_post',
+  'mcp__xiaoheihe-read__xiaoheihe_feed', 'mcp__xiaoheihe-read__xiaoheihe_read_post', 'mcp__xiaoheihe-read__xiaoheihe_comment',
   'mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video',
   'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment', 'mcp__bili-read__bili_send_dm', 'mcp__bili-read__bili_interaction_options', 'mcp__bili-read__bili_read_dm',
 ])
@@ -324,8 +324,8 @@ export const READONLY_TOOL_NAMES = Object.freeze(['read', 'read_image', 'glob', 
 
 const NEVER_GRANTED_SET = new Set(NEVER_GRANTED_TOOL_NAMES)
 const READONLY_TOOL_SET = new Set(READONLY_TOOL_NAMES)
-const OWNER_BILI_TOOLS = new Set(['mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video', 'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment', 'mcp__bili-read__bili_send_dm', 'mcp__bili-read__bili_interaction_options'])
-const XIAOHEIHE_TOOLS = new Set(['mcp__xiaoheihe-read__xiaoheihe_feed', 'mcp__xiaoheihe-read__xiaoheihe_read_post'])
+const OWNER_BILI_TOOLS = new Set(['mcp__bili-read__sticker_search', 'mcp__bili-read__bili_search', 'mcp__bili-read__bili_user_videos', 'mcp__bili-read__bili_read_video', 'mcp__bili-read__bili_recommendations', 'mcp__bili-read__bili_comments', 'mcp__bili-read__bili_like', 'mcp__bili-read__bili_comment', 'mcp__bili-read__bili_send_dm', 'mcp__bili-read__bili_interaction_options'])
+const XIAOHEIHE_TOOLS = new Set(['mcp__xiaoheihe-read__sticker_search', 'mcp__xiaoheihe-read__xiaoheihe_feed', 'mcp__xiaoheihe-read__xiaoheihe_read_post', 'mcp__xiaoheihe-read__xiaoheihe_comment'])
 
 /**
  * 归一化行级 `config.mode`。
@@ -530,7 +530,7 @@ export function apply(ctx, config = {}) {
     ctx.inject(['systemPrompt'], scope => scope.systemPrompt.section({
       name: 'qq:video-policy', order: 110, interpolate: false,
       text: () => '视频按需查看：先用 video_probe 了解时长，再用 video_storyboard 查看画面。每次显式设置 from、to，窗口不超过300秒，maxFrames=48、maxSheets=2、budget=360000、detail=low、transcript=off、scanHeight=360；长视频分段查看，不重复取同一窗口。抽帧不代表逐帧看过；没有字幕或转写时不能声称听懂声音。' +
-        (mode === MODES.OPEN ? ' 主人发来的QQ视频：先用 qq_get_message_detail 取得 videos.url，再传给视频工具；URL不可用时请主人重发，禁止把视频交给图片解码工具。' : ' 先用 bili_read_video 确认字幕可用，无字幕跳过；仅对有字幕的视频按需补看分镜。')
+        (mode === MODES.OPEN ? ' 主人发来的QQ视频：先用 qq_get_message_detail 取得 videos.url，再传给视频工具；URL不可用时请主人重发，禁止把视频交给图片解码工具。' : ' 先用 bili_read_video 读取字幕；无字幕时使用 video_probe 和 video_storyboard 查看画面，不能声称听懂声音或看完全部。')
     }))
   }
 }

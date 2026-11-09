@@ -19,6 +19,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFile, spawn } from 'node:child_process'
 import net from 'node:net'
+import crypto from 'node:crypto'
+import { createStickerGateway } from './sticker-gateway.js'
+import { createStickerSettings } from './sticker-settings.js'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -42,6 +45,7 @@ export const ROUTES = {
   persona: `${routePath}/persona`,
   tokens: `${routePath}/tokens`,
   stickers: `${routePath}/stickers`,
+  stickerSource: `${routePath}/sticker-source`,
   launchSnowluma: `${routePath}/launch-snowluma`,
   openSnowluma: `${routePath}/open-snowluma`,
   access: `${routePath}/access`,
@@ -443,7 +447,7 @@ async function handleTokens(req, res) {
 }
 
 /** GET/POST 表情素材：列出、上传（加进 QQ 收藏）、改备注、删除、强制同步。 */
-async function handleStickers(req, res) {
+async function handleStickers(req, res, stickerSettings) {
   const env = bridgeEnv()
   if (!env.ok) return json(res, 200, { ok: false, error: env.error })
 
@@ -451,12 +455,17 @@ async function handleStickers(req, res) {
     const url = new URL(req.url || '/', 'http://127.0.0.1')
     const count = url.searchParams.get('count') || '60'
     const r = await bridgeApi(env, `/api/stickers?count=${encodeURIComponent(count)}`, { timeoutMs: 60000 })
-    return json(res, 200, r.ok ? { ok: true, ...(r.data || {}) } : { ok: false, error: r.error || `HTTP ${r.status}` })
+    let knowledge
+    try { knowledge=await stickerSettings.status() } catch { knowledge={available:false,error:'知识库状态读取失败'} }
+    return json(res, 200, r.ok ? { ok: true, ...(r.data || {}), knowledge } : { ok: false, error: r.error || `HTTP ${r.status}`, knowledge })
   }
 
   let body
   try { body = await readJsonBody(req) } catch (error) { return json(res, 400, { ok: false, error: String(error.message || error) }) }
   const action = String(body.action || '')
+
+  if (action === 'knowledge-enabled') return json(res, 200, {ok:true,knowledge:stickerSettings.setEnabled(body.enabled)})
+  if (action === 'knowledge-update') return json(res, 200, {ok:true,knowledge:await stickerSettings.update()})
 
   const forward = async (apiPath, payload, timeoutMs) => {
     const r = await bridgeApi(env, apiPath, { method: 'POST', body: payload, timeoutMs })
@@ -781,6 +790,19 @@ export function mount(ctx) {
   // 于是用户点开「后端」页签时多半已命中 5 秒缓存，而不是先看到"加载中…"。
   discoverBackends().catch(() => {})
 
+  const stickerSettings = createStickerSettings({directory:path.join(DSH_HOME,'nekowhale-stickers'),getKit:()=>ctx.get('stickers')})
+  const liveStickerGateway = createStickerGateway(() => ctx.get('stickers'), {isEnabled:()=>stickerSettings.read().enabled})
+  const stickerSource = async (req, res) => {
+    const env = bridgeEnv()
+    const expected = String(env.cfg?.consoleToken || env.token || '')
+    const provided = String(req.headers['x-console-token'] || '')
+    const a = Buffer.from(expected), b = Buffer.from(provided)
+    if (!expected || a.length !== b.length || !crypto.timingSafeEqual(a, b)) return json(res, 403, { ok: false, error: '无权访问表情服务' })
+    if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'method not allowed' })
+    const q = new URL(req.url || '/', 'http://localhost').searchParams
+    if (q.has('id')) return json(res, 200, { ok: true, sticker: await liveStickerGateway.resolve(q.get('id')) })
+    return json(res, 200, { ok: true, stickers: await liveStickerGateway.search(q.get('query') || '', q.get('count')) })
+  }
   const table = [
     [ROUTES.status, handleStatus],
     [ROUTES.toggle, handleToggle],
@@ -790,7 +812,8 @@ export function mount(ctx) {
     [ROUTES.onebotGateway, handleOnebotGateway],
     [ROUTES.persona, handlePersona],
     [ROUTES.tokens, handleTokens],
-    [ROUTES.stickers, handleStickers],
+    [ROUTES.stickers, (req,res)=>handleStickers(req,res,stickerSettings)],
+    [ROUTES.stickerSource, stickerSource],
     [ROUTES.launchSnowluma, handleLaunchSnowluma],
     [ROUTES.openSnowluma, handleOpenSnowluma],
     [ROUTES.access, handleAccess],

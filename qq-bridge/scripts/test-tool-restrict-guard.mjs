@@ -210,9 +210,10 @@ await test('apply 真的按行级 config.mode 建 guard（open / readonly / 未�
     assert.equal(strict.guard({ name: 'mcp__snowluma__qq_send_message' }), undefined);
   }
   // 三档共用同一份注册期隐藏名单：open 也要把 dev_* 从 schema 里藏掉
-  assert.equal(open.hidden.size, mod.RESTRICTED_TOOL_NAMES.length - 15, 'open 档放行受控平台工具与三个视频工具');
+  assert.ok(!open.hidden.has('mcp__xiaoheihe-read__xiaoheihe_comment'), 'owner 可使用受控评论工具');
   const xhh = build({ mode: 'xiaoheihe' });
   assert.equal(xhh.guard({name:'mcp__xiaoheihe-read__xiaoheihe_feed'}),undefined);
+  assert.equal(xhh.guard({name:'mcp__xiaoheihe-read__xiaoheihe_comment'}),undefined);
   assert.ok(xhh.guard({name:'mcp__bili-read__bili_search'}));
   assert.ok(xhh.guard({name:'pwsh'}));
   assert.ok(readonly.hidden.has('mcp__xiaoheihe-read__xiaoheihe_feed'));

@@ -69,5 +69,21 @@ try {
   g.saveConfig({enabled:true,allowed:['get_login_info','action_218']});
   assert.equal((await g.call('action_218',{})).status,'accepted');
   assert.ok(g.logs().some(x=>x.action==='action_218'&&x.result==='accepted'));
+  const supplements=path.join(root,'supplements.json');
+  fs.writeFileSync(supplements,JSON.stringify({actions:[{name:'.get_word_slices',summary:'分词（未实现）',readOnly:true,params:[]},{name:'set_group_anonymous',summary:'匿名开关（未实现，返回 ok）',params:[]},{name:'get_status',readOnly:true,params:[]},{name:'can_send_image',summary:'上游自定义说明',readOnly:true,params:[]}]}));
+  let remoteCalls=0;
+  const extra=createOnebotGateway({directory:path.join(root,'supplement-state'),catalogFile:supplements,request:async()=>{remoteCalls++;return {status:'ok',retcode:0,data:{}}}});
+  extra.saveConfig({enabled:true,allowed:['.get_word_slices','set_group_anonymous','get_status','can_send_image']});
+  assert.match(extra.list('get_status')[0].summary,/状态/);
+  assert.equal(extra.list('can_send_image')[0].summary,'上游自定义说明');
+  const words=await extra.call('.get_word_slices',{content:'今天天气不错'});
+  assert.ok(words.data.slices.length>0);assert.match(words.message,/本地分词/);
+  await assert.rejects(()=>extra.call('.get_word_slices',{}),/缺少必填参数/);
+  await assert.rejects(()=>extra.call('set_group_anonymous',{}),/未实现/);
+  await assert.rejects(()=>extra.call('set_group_anonymous',{group_id:123,enable:true}),/未实现/);
+  assert.equal(remoteCalls,0,'占位接口不得伪报成功或发送请求');
+  fs.writeFileSync(supplements,JSON.stringify({actions:[{name:'.get_word_slices',summary:'上游分词已实现',readOnly:true,params:[{name:'content',required:true,schema:{type:'string'}}]}]}));
+  const native=await extra.call('.get_word_slices',{content:'测试'});
+  assert.equal(remoteCalls,1,'上游实现后优先调用上游');assert.equal(native.status,'accepted');
   console.log('onebot gateway checks passed');
 } finally {fs.rmSync(root,{recursive:true,force:true});}

@@ -24,6 +24,7 @@ import { SENSITIVE_RE, auditOutbound } from './sensitive.js';
 import { looksLikeUnfinished } from './v2-wait.js';
 import { compactModelMessage, describeAge } from './qq-model-view.js';
 import { safeFetchBuffer, looksLikeImageBuffer } from './safe-fetch.js';
+import { imageFileFromSegment } from './image-file.mjs';
 import { normalizeImageForModel } from './media-normalize.js';
 import { AUDIO_EXTS, cleanupTemp, describeAudio, formatBytes, formatDuration, inspectAudio, listAudioFiles, parseTargetKey, processAudioVolume, resolveAudioProcessing, resolveAudioSource, safeJoinLibrary } from './send-voice-lib.js';
 import { discoverSnowLumaConnection, persistSnowLumaEndpoint, persistToken } from './snowluma-conn.js';
@@ -49,6 +50,7 @@ import { createBiliAutomation } from './bili-automation.mjs';
 import { createXiaoheiheService } from './xiaoheihe-service.mjs';
 import { createXiaoheiheAutomation } from './xiaoheihe-automation.mjs';
 import { createOnebotGateway } from './onebot-gateway.mjs';
+import { createNekowhaleClient } from './nekowhale-client.mjs';
 import { blocksOtherPlatform } from './background-arbitration.mjs';
 import { DEFAULT_XIAOHEIHE_CONFIG, normalizeXiaoheiheConfig } from './xiaoheihe-config.mjs';
 import {
@@ -1430,6 +1432,9 @@ function extractMediaFromSegments(segments) {
         summary: sanitizeMediaSummary(d.summary),
         ...emojiFields
       });
+    } else if (seg.type === 'file') {
+      const imageFile = imageFileFromSegment(seg);
+      if (imageFile) media.push(imageFile);
     } else if (seg.type === 'video') {
       // Keep the transport reference for on-demand video tools, never feed it to the image decoder.
       media.push({ kind: 'video', file: String(d.file ?? ''), url: String(d.url ?? ''), summary: sanitizeMediaSummary(d.summary) });
@@ -1544,6 +1549,7 @@ let stateDirHardened = null;
 // ── 主流程 ──────────────────────────────────────────────────────────────────
 async function main() {
   const cfg = loadConfig();
+  const nekowhale = createNekowhaleClient({ baseUrl: cfg.dsh.baseUrl, stateDir: STATE_DIR, config: () => cfg });
   fs.mkdirSync(STATE_DIR, { recursive: true });
   hardenStateDirAcl();
   acquireLock();
@@ -1714,7 +1720,16 @@ async function main() {
   async function listStickersForV2(query = '', count = 48, force = false) {
     const synced = await syncStickerLibrary(force);
     const entries = synced?.entries ?? stickerEntries;
-    return formatStickerList(entries, query, count);
+    const result = formatStickerList(entries, query, count);
+    try {
+      const extra = await nekowhale.search(query, Math.min(20, count));
+      const items = Array.isArray(extra) ? extra.map(s => ({ ...s, desc: s.name, localNote: s.description, usage: s.description })) : [];
+      result.stickers = [...items, ...result.stickers].slice(0, count);
+      result.matched += items.length;
+      result.total += items.length;
+      result.truncated = result.matched > result.stickers.length;
+    } catch (e) { log(`[sticker] 大肥鱼表情库暂不可用：${e?.message ?? e}`); }
+    return { ...result, syncedAt: synced?.syncedAt ?? stickerSyncedAt, fromCache: synced?.fromCache ?? false };
   }
 
   // 取单个表情的图片字节（多模态用）。
@@ -2249,9 +2264,11 @@ async function main() {
   // 发送一个收藏表情（按 emoji_id/url/md5 解析，发图片段）。
   async function sendStickerV2(key, stickerRef, options = {}) {
     const assertSendAllowed = captureSendGuard(key);
+    const external = String(stickerRef).startsWith('nekowhale:') ? await nekowhale.resolve(stickerRef) : null;
+    if (String(stickerRef).startsWith('nekowhale:') && !external) throw new Error('表情已禁用或不存在');
     // 发送前强制同步一次，确保“刚新增的表情能立即用、刚删除的表情不会继续发”。
     const synced = await syncStickerLibrary(true);
-    const entry = findSticker(synced?.entries ?? stickerEntries, stickerRef);
+    const entry = external ? { ...external, desc: external.name, localNote: external.description } : findSticker(synced?.entries ?? stickerEntries, stickerRef);
     if (!entry) throw new Error(`找不到表情 ${stickerRef}，请先用 qq_list_stickers 获取有效 id`);
     const url = entry.url;
     if (!url) throw new Error(`表情 ${entry.id} 没有可发送的图片地址`);
@@ -2278,7 +2295,8 @@ async function main() {
     } catch (error) {
       throw new Error(`表情 ${entry.id} 的图片下载失败（QQ CDN 网络异常或地址已失效）：${error?.message ?? error}`);
     }
-    segments.push({ type: 'image', data: { file: 'base64://' + image.buffer.toString('base64') } });
+    if (external && (image.buffer.subarray(0, 3).toString('ascii') !== 'GIF' || crypto.createHash('sha1').update(image.buffer).digest('hex').slice(0, 12) !== external.hash)) throw new Error('表情图片校验失败');
+    segments.push({ type: 'image', data: { file: 'base64://' + image.buffer.toString('base64'), ...(external ? { sub_type: 1 } : {}) } });
     const action = kind === 'private' ? 'send_private_msg' : 'send_group_msg';
     const params = kind === 'private' ? { user_id: Number(id), message: segments } : { group_id: Number(id), message: segments };
     const httpUrl = String(cfg.snowluma?.httpUrl || 'http://127.0.0.1:3000').replace(/\/+$/, '');
@@ -2295,6 +2313,10 @@ async function main() {
         await sleep(randInt(800, 2000));
         await waitReplyFloorV2(key);
         assertSendAllowed();
+        if (external) {
+          const current = await nekowhale.resolve(stickerRef);
+          if (!current || current.hash !== external.hash) throw new Error('表情已禁用或更新，请重新选择');
+        }
         const res = await fetch(`${httpUrl}/${action}`, {
           method: 'POST',
           headers: {
@@ -2320,7 +2342,7 @@ async function main() {
     const updated = markStickerUsed(stickerEntries, entry.id, 'sticker');
     stickerEntries = updated.entries;
     saveStickerStoreSafe();
-    return { entry: updated.entry, messageId: data?.message_id ?? null };
+    return { entry: updated.entry || entry, messageId: data?.message_id ?? null };
   }
 
   // 更新本地 AI 认知（含义/标签/用法）。
@@ -3722,6 +3744,18 @@ async function main() {
         }
       }
       try {
+        if (url.pathname === '/api/socialV2/browse-intent' && req.method === 'POST') {
+          const body = await readBody();
+          const key = String(body.key || ''), token = req.headers['x-agent-token'];
+          if (!token || !agentTokenOk(key, token) || !v2SessionAllowed(key) || sessionTier(key,currentMode,cfg) !== 'owner' || key !== `private:${cfg.ownerQQ}`) { sendJson({ok:false,error:'仅主人私聊会话可决定自动浏览'},403); return; }
+          const chat = getSocialV2State(key), wakeAt = Number(chat?.wakeConfig?.lastWakeAt) || 0;
+          if (currentMode !== 'reserved2' || socialV2.paused || cfg.socialV2?.enabled === false || chat.lastWakeReason !== 'proactiveCheck' || !wakeAt || Date.now() - wakeAt > 15 * 60 * 1000 || (Number(chat.lastIncomingAt) || 0) > wakeAt) { sendJson({ok:false,error:'仅启用状态下的主动聊天唤醒可安排自动浏览'},403); return; }
+          const automation = body.platform === 'bili' ? biliAutomation : body.platform === 'xiaoheihe' ? xiaoheiheAutomation : null;
+          if (!automation) { sendJson({ok:false,error:'平台无效或调度尚未就绪'},400); return; }
+          try { const queued=automation.request(); sendJson({ok:true,queued,message:queued?'已记录本次浏览意向，会话空闲后尝试派发，15分钟后失效。':'已有待处理的浏览意向。'}); }
+          catch(e) { sendJson({ok:false,error:String(e.message).slice(0,200)},400); }
+          return;
+        }
         if (url.pathname.startsWith('/api/onebot-gateway/')) {
           const isAgent=req.headers['x-agent-call'] !== undefined || req.headers['x-agent-token'] !== undefined;
           if (url.pathname==='/api/onebot-gateway/settings') {
@@ -5434,7 +5468,7 @@ async function main() {
           const idText = selfIdentityTextV2();
           if (idText) parts.push(idText.trim());
           parts.push(`【会话令牌】${acSt.agentToken}（调用二代状态工具时请在参数中带上此令牌）`);
-          parts.push('【记忆与表情】需要回忆时用 qq_recall；新事实用 qq_memory_append 保存；表情按需用 qq_list_stickers 查找。发送成功默认收尾，无需重复 mark_read。');
+          parts.push('【记忆与表情】需要回忆时用 qq_recall；新事实用 qq_memory_append 保存；可按情绪用 qq_list_stickers 查找 QQ 收藏或大肥鱼表情，再用 qq_send_sticker 发送。发送成功默认收尾，无需重复 mark_read。');
           if (sessionTier(key,currentMode,cfg)==='owner' && key.startsWith('private:')) parts.push('【QQ 接口】主人要求操作 QQ 时，可用 qq_api_find 查找已授权接口，再用 qq_api_call 调用；不要索取或输出账号凭据。');
           if (sessionTier(key,currentMode,cfg)==='owner' && key.startsWith('private:')) parts.push('【自主设定】你可根据长期体验偶尔用 qq_find_tool 搜索 qq_persona_evolve 并更新自己的喜好、性格和说话方式；这不会改变基础角色卡、权限或其他规则。');
           if (!acSt.systemContextSnapshot || acSt.systemContextSnapshot.sid !== sid) {
@@ -6789,9 +6823,8 @@ async function main() {
           if (req.headers['x-agent-token'] && !v2SessionAllowed(key)) { sendJson({ ok: false, error: '目标不在当前模式允许范围内' }, 403); return; }
           if (req.headers['x-agent-token'] && !v2ToolEnabled('listStickers')) { sendJson({ ok: false, error: '工具未启用：qq_list_stickers' }, 403); return; }
           try {
-            const synced = await syncStickerLibrary(force);
-            const list = formatStickerList(synced?.entries ?? stickerEntries, query, count);
-            sendJson({ ok: true, key, ...list, syncedAt: synced?.syncedAt ?? stickerSyncedAt, fromCache: synced?.fromCache ?? false });
+            const list = await listStickersForV2(query, count, force);
+            sendJson({ ok: true, key, ...list });
           } catch (error) {
             sendJson({ ok: false, error: `获取表情列表失败：${error?.message ?? error}` }, 500);
           }
@@ -6816,9 +6849,8 @@ async function main() {
             else lastForcedAgentStickerSync = now;
           }
           try {
-            const synced = await syncStickerLibrary(force);
-            const list = formatStickerList(synced?.entries ?? stickerEntries, query, count);
-            sendJson({ ok: true, key, ...list, syncedAt: synced?.syncedAt ?? stickerSyncedAt, fromCache: synced?.fromCache ?? false });
+            const list = await listStickersForV2(query, count, force);
+            sendJson({ ok: true, key, ...list });
           } catch (error) {
             sendJson({ ok: false, error: `获取表情列表失败：${error?.message ?? error}` }, 500);
           }
@@ -8677,6 +8709,10 @@ async function main() {
     const emojiId = String(media.emojiId || emojiIdFromFileName(media.file) || '');
     const isSticker = media.kind === 'sticker' || !!emojiId || String(media.subType || '') === '1';
     const label = isSticker ? '表情' : '图片';
+    if (media.kind === 'image-file' && Number(media.size) > MAX_MEDIA_BYTES) {
+      log('[media] 图片文件超过下载大小上限，已跳过');
+      return null;
+    }
     const failures = [];
     const urls = [];
     const pushUrl = (raw) => {
@@ -10963,9 +10999,10 @@ async function main() {
     // 与「部分表情 20 秒超时」的根因）；丢了 summary，模型只看到「[图片1]」而不是「[表情:给你糖吃]」；
     // kind 被拍平还会让 mface（市场表情）被当成普通图片。
     const safeMedia = Array.isArray(media) ? media.map((m) => {
-      const kind = m?.kind === 'video' ? 'video' : (m?.kind === 'face' ? 'face' : (m?.kind === 'sticker' ? 'sticker' : 'image'));
+      const kind = m?.kind === 'video' ? 'video' : (m?.kind === 'face' ? 'face' : (m?.kind === 'sticker' ? 'sticker' : (m?.kind === 'image-file' ? 'image-file' : 'image')));
       const item = { kind };
       if (m?.file) item.file = String(m.file);
+      if (m?.kind === 'image-file' && Number.isFinite(m.size)) item.size = m.size;
       if (m?.url) item.url = String(m.url);
       if (m?.faceId) item.faceId = String(m.faceId);
       if (m?.emojiId) item.emojiId = String(m.emojiId);
@@ -11629,7 +11666,7 @@ async function main() {
     }
     if (reason === 'timeout') return `${base}（你设的潜水时间到了。）`;
     if (reason === 'replyCheck') return `${base}（对方回你了。）`;
-    if (reason === 'proactiveCheck') return `${base}${String(cfg.socialV2?.proactive?.prompt ?? '（安静了一阵，想说什么可以说。）').slice(0, 2000)}`;
+    if (reason === 'proactiveCheck') return `${base}${String(cfg.socialV2?.proactive?.prompt ?? '（安静了一阵，想说什么可以说。）').slice(0, 2000)}\n【浏览机会】你可以根据兴趣自行决定这次是否浏览 B 站或小黑盒；想浏览时调用 qq_browse_decide 选择平台，不想浏览无需调用。系统会执行开关、次数和时长限制；不要自己绕过调度派生刷站任务。`;
     if (reason === 'poke') return `${base}（有人拍了一拍。）`;
     return base;
   }

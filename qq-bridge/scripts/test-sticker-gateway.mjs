@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {createStickerGateway} from '../../dsh-plugins/dsh-thinking-zh/lib/features/sticker-gateway.js';
+let allowed = true;
+const item={id:'大肥鱼/01_开心',name:'开心',hash:'aabbccddeeff',tags:['快乐']};
+const kit={all:async()=>allowed?[item]:[],search:async()=>allowed?[{sticker:item}]:[],url:()=>`https://kiriyuki.com/media/gif/x.gif`};
+const gateway=createStickerGateway(()=>kit);
+assert.equal((await gateway.search('开心'))[0].id,'nekowhale:'+item.id);
+assert.equal((await gateway.resolve('nekowhale:'+item.id)).hash,item.hash);
+allowed=false;
+assert.equal(await gateway.resolve('nekowhale:'+item.id),null);
+assert.deepEqual(await gateway.search('开心'),[]);
+assert.equal(await gateway.resolve('nekowhale:../secret'),null);
+allowed=true;kit.url=()=> 'http://127.0.0.1/secret';
+await assert.rejects(()=>gateway.resolve('nekowhale:'+item.id),/不受信任/);
+console.log('live sticker gateway respects kit selection and URL policy');

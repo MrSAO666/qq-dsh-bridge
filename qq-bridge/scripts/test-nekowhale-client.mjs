@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { createNekowhaleClient } from '../src/nekowhale-client.mjs';
+let request;
+const c=createNekowhaleClient({baseUrl:'http://127.0.0.1:3080',stateDir:'.',config:()=>({consoleToken:'fixture'}),getCookie:async()=> 'cookie=fixture',request:async (url,opts)=>{request={url,opts};return {ok:true,json:async()=>({ok:true,stickers:[{id:'nekowhale:abc'}]})}}});
+assert.deepEqual(await c.search('开心',5),[{id:'nekowhale:abc'}]);
+assert.equal(request.url.searchParams.get('query'),'开心');
+assert.equal(request.opts.headers['x-console-token'],'fixture');
+assert.equal(request.opts.headers.cookie,'cookie=fixture');
+const broken=createNekowhaleClient({baseUrl:'http://127.0.0.1:3080',stateDir:'.',config:()=>({consoleToken:'fixture'}),getCookie:async()=>'',request:async()=>({ok:false,status:403})});
+await assert.rejects(()=>broken.resolve('nekowhale:abc'),/403/);
+console.log('sticker gateway client authentication and failure handling passed');

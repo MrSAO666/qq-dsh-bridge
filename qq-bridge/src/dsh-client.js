@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import YAML from 'js-yaml';
 import { AbstractApiClient } from '@deepseek-ai/dsh-host-apiproxy/client';
 
@@ -36,6 +37,16 @@ export function resolveDshHome() {
 export function discoverDshLaunchToken() {
   const fromEnv = process.env.DSH_LAUNCH_TOKEN;
   if (typeof fromEnv === 'string' && /^[A-Za-z0-9_-]{16,}$/.test(fromEnv)) return fromEnv;
+  if (process.platform === 'linux') {
+    try {
+      const pid = execFileSync('systemctl', ['show', 'dsh-web.service', '--property=MainPID', '--value'], { encoding: 'utf8', timeout: 3000 }).trim();
+      if (/^[1-9][0-9]*$/.test(pid)) {
+        const log = execFileSync('journalctl', ['--no-pager', '-o', 'cat', `_PID=${pid}`], { encoding: 'utf8', timeout: 3000, maxBuffer: 4 * 1024 * 1024 });
+        const match = log.match(/dsh web:\s+https?:\/\/[^\s]+[?&]token=([A-Za-z0-9_-]+)/);
+        if (match) return match[1];
+      }
+    } catch { /* fall back to existing discovery */ }
+  }
   const home = resolveDshHome();
   // DSH_HOME/logs 是退役 guard 之后约定的启动日志位置；guard/logs 保留兼容。
   const dirs = [path.join(home, 'logs'), path.join(home, 'guard', 'logs')];

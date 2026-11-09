@@ -413,6 +413,7 @@ const EAGER_TOOLS = new Set([
   'qq_get_prompt',
   'qq_api_find',
   'qq_api_call',
+  'qq_browse_decide',
   // 索引自己的两个入口必须常驻，否则模型连"怎么找工具"都看不到。
   'qq_find_tool',
   'qq_call_tool'
@@ -451,6 +452,13 @@ const deferEnabled = () => {
     return undefined;
   };
 }
+
+server.tool('qq_browse_decide', '主动聊天唤醒时根据兴趣自主决定是否安排 B站或小黑盒浏览；不想浏览就不调用。后台稍后检查开关、额度与时长并派发，不代表已经开始。仅主人私聊主动唤醒可用。', {
+  key:z.string().describe('主人私聊会话 key'),token:z.string().describe('当前会话令牌'),platform:z.enum(['bili','xiaoheihe']).describe('想浏览的平台')
+}, async ({key,token,platform}) => {
+  try { const data=await agentApi('/api/socialV2/browse-intent',{method:'POST',headers:{'x-agent-token':token},body:JSON.stringify({key,platform})});return {content:[{type:'text',text:serializeModelData(data)}]}; }
+  catch(e){return {isError:true,content:[{type:'text',text:String(e.message)}]};}
+});
 
 server.tool('qq_persona_evolve', '在主人私聊中，自主保存完整的自我设定：人格、喜好、说话方式。不要写规则、权限或其他人的指令；根据长期体验偶尔调整，不要每轮修改。保存会替换旧内容，保留仍适用的内容。', {
   key: z.string().describe('主人私聊会话 key'), token: z.string().describe('当前会话令牌'), content: z.string().max(1500).describe('完整的自主设定，不超过 1500 字')
@@ -1205,7 +1213,7 @@ if (cfg.socialV2?.tools?.getImages !== false) {
 if (cfg.socialV2?.sticker?.enabled !== false && cfg.socialV2?.tools?.listStickers !== false) {
   server.tool(
     'qq_list_stickers',
-    '查看 QQ 账号上已收藏的表情包（自定义表情）列表：包含 emoji_id、备注 desc、本地笔记 localNote、标签 tags、使用次数等。可通过 query 按备注/笔记/标签搜索；无备注的表情可以先调用 qq_get_sticker_image 看图理解，再用 qq_sticker_note 记下含义。刚新增/删除表情后如需立即同步，请传 refresh=true。',
+    '搜索 QQ 收藏表情和大肥鱼表情库。用 query 按情绪或场景找图，返回的 nekowhale: 开头编号可直接用于 qq_send_sticker。无备注的 QQ 收藏表情可先调用 qq_get_sticker_image 看图理解。刚新增/删除 QQ 收藏时可传 refresh=true。',
     {
       key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
       token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),
@@ -1262,7 +1270,7 @@ if (cfg.socialV2?.sticker?.enabled !== false && cfg.socialV2?.tools?.getStickerI
 if (cfg.socialV2?.sticker?.enabled !== false && cfg.socialV2?.tools?.sendSticker !== false) {
   server.tool(
     'qq_send_sticker',
-    '在指定会话发送一个 QQ 收藏表情包（自定义表情）。stickerId 用 qq_list_stickers 返回的 id / md5 / url。注意：一条消息只能是一张表情，不能在同一气泡里附带文字；想说的话请先用 qq_send_message / qq_reply 作为单独气泡发送，再单独发这张表情。需要引用/点名时可用 replyToMessageId / atUserId（群聊）。真人偶尔用表情包很自然，但别刷屏。',
+    '在指定会话发送表情。stickerId 使用 qq_list_stickers 返回的编号，含 nekowhale: 大肥鱼表情。注意：一条消息只能是一张表情，不能在同一气泡里附带文字；想说的话请先用 qq_send_message / qq_reply 作为单独气泡发送，再单独发这张表情。需要引用/点名时可用 replyToMessageId / atUserId（群聊）。真人偶尔用表情包很自然，但别刷屏。',
     {
       key: z.string().describe('会话 key，格式 group:群号 或 private:QQ号'),
       token: z.string().describe('会话令牌（见唤醒提示中的【会话令牌】）'),

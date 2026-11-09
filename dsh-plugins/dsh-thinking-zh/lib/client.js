@@ -967,6 +967,7 @@ window.__ModuleLoader__.load({
           if (entry.replyTo) detail.appendChild(h('div', 'dsh-bili-sub', (entry.action === '私信' ? '收件人：' : '回复对象：') + entry.replyTo))
           if (Array.isArray(entry.mentionUids) && entry.mentionUids.length) detail.appendChild(h('div', 'dsh-bili-sub', '@ UID：' + entry.mentionUids.join('、')))
           if (entry.content) detail.appendChild(h('div', 'dsh-bili-sub', '内容：' + entry.content))
+          if (entry.stickerId) detail.appendChild(h('div', 'dsh-bili-sub', '表情：' + entry.stickerId.slice(10)))
           row.appendChild(detail)
           row.appendChild(h('span', 'dsh-bili-logstate' + (entry.state === '失败' ? ' bad' : ''), entry.state || '—'))
           logBox.appendChild(row)
@@ -1302,21 +1303,25 @@ window.__ModuleLoader__.load({
     var runs=field('每天最多浏览次数','number',config.dailyRuns), duration=field('每次最长分钟数','number',config.durationMinutes)
     runs.min='0'; runs.max='100'; duration.min='1'; duration.max='1440'; runs.step=duration.step='1'
     var topics=field('关注话题（逗号分隔）','text',(config.topics||[]).join('，'))
+    var commentEnabled=field('允许对已读帖子发表评论','checkbox',config.commentEnabled)
+    var commentLimit=field('每天最多评论条数','number',config.dailyCommentLimit == null ? 3 : config.dailyCommentLimit)
+    var commentCooldown=field('评论最短间隔（秒）','number',config.commentCooldownSeconds == null ? 60 : config.commentCooldownSeconds)
+    commentLimit.min='0'; commentLimit.max='100'; commentLimit.step='1'; commentCooldown.min='10'; commentCooldown.max='86400'; commentCooldown.step='1'
     panel.appendChild(grid)
     var saveStatus=h('div','dsh-bili-sub',''); saveStatus.setAttribute('aria-live','polite'); panel.appendChild(saveStatus)
     panel.appendChild(actionsRow([{ label:'保存小黑盒设置', onClick:function () {
-      if (!runs.validity.valid || !duration.validity.valid || !runs.value || !duration.value) { saveStatus.textContent='请检查次数和时长。'; return }
-      var data={enabled:enabled.checked,autoEnabled:automatic.checked,dailyRuns:Number(runs.value),durationMinutes:Number(duration.value),topics:topics.value.split(/[,，\n]/).map(function(x){return x.trim()}).filter(Boolean)}
+      if (!runs.validity.valid || !duration.validity.valid || !runs.value || !duration.value || !commentLimit.validity.valid || !commentCooldown.validity.valid || !commentLimit.value || !commentCooldown.value) { saveStatus.textContent='请检查次数、时长和评论限制。'; return }
+      var data={enabled:enabled.checked,autoEnabled:automatic.checked,dailyRuns:Number(runs.value),durationMinutes:Number(duration.value),topics:topics.value.split(/[,，\n]/).map(function(x){return x.trim()}).filter(Boolean),commentEnabled:commentEnabled.checked,dailyCommentLimit:Number(commentLimit.value),commentCooldownSeconds:Number(commentCooldown.value)}
       postJson(mState.feature.api+'/xiaoheihe',{action:'save',config:data}).then(function(r){saveStatus.textContent=r && r.ok ? '小黑盒设置已保存。' : ((r && r.error)||'保存失败。')})
     }}]))
-    panel.appendChild(h('p','dsh-bili-sub','公开评论、回复、发帖未开放；只读取帖子和评论。'))
+    panel.appendChild(h('p','dsh-bili-sub','开启后子 Agent 可对本次已读帖子发表评论；结果未知时不自动重发。目前只支持文字，不支持回复评论、图片或发帖。'))
     nodes.push(panel)
     var records=h('section','dsh-bili-card'); records.appendChild(h('h4',null,'浏览日志')); records.appendChild(h('p','dsh-bili-sub','显示帖子读取结果及原文链接。'))
     var logBox=h('div','dsh-bili-log'); records.appendChild(logBox)
     function renderLogs(logs) {
       logBox.textContent=''
       if (!Array.isArray(logs) || !logs.length) { logBox.appendChild(h('div','dsh-bili-logempty','暂无浏览记录。')); return }
-      logs.forEach(function(item){ var row=h('div','dsh-bili-logrow'), stamp=new Date(item.at), detail=h('div'); row.appendChild(h('span','dsh-bili-logtime',isNaN(stamp.getTime())?'—':stamp.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}))); detail.appendChild(h('span',null,item.action||'小黑盒操作')); if(item.postId && /^\d+$/.test(String(item.postId))) { var a=h('a',null,item.title||item.postId); a.href='https://www.xiaoheihe.cn/app/bbs/link/'+item.postId; a.target='_blank'; a.rel='noopener noreferrer'; a.style.marginLeft='8px'; a.style.color='#e88ba9'; detail.appendChild(a) } row.appendChild(detail); row.appendChild(h('span','dsh-bili-logstate'+(item.result==='失败'?' bad':''),item.result||'—')); logBox.appendChild(row) })
+      logs.forEach(function(item){ var row=h('div','dsh-bili-logrow'), stamp=new Date(item.at), detail=h('div'); row.appendChild(h('span','dsh-bili-logtime',isNaN(stamp.getTime())?'—':stamp.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false}))); detail.appendChild(h('span',null,item.action||'小黑盒操作')); if(item.postId && /^\d+$/.test(String(item.postId))) { var a=h('a',null,item.title||item.postId); a.href='https://www.xiaoheihe.cn/app/bbs/link/'+item.postId; a.target='_blank'; a.rel='noopener noreferrer'; a.style.marginLeft='8px'; a.style.color='#e88ba9'; detail.appendChild(a) } if(item.content)detail.appendChild(h('div','dsh-bili-sub','内容：'+item.content)); row.appendChild(detail); row.appendChild(h('span','dsh-bili-logstate'+(item.result==='失败'?' bad':''),item.result||'—')); logBox.appendChild(row) })
     }
     records.appendChild(actionsRow([{label:'刷新日志',ghost:true,onClick:function(){logBox.textContent='正在加载日志…';fetchJson(mState.feature.api+'/xiaoheihe').then(function(r){if(!modal||mState.tab!=='xiaoheihe')return;if(!r||!r.ok){logBox.textContent=(r&&r.error)||'日志暂时不可用';return}renderLogs(r.logs)})}}]))
     renderLogs(d.logs)
@@ -1551,6 +1556,33 @@ window.__ModuleLoader__.load({
     var total = (d.total === undefined || d.total === null) ? list.length : d.total
     var api = mState.feature.api + '/stickers'
     var nodes = []
+
+    var knowledge=d.knowledge || {}, knowledgeBox=h('div','dsh-bili-card'), knowledgeRow=h('label','dsh-bili-toggle')
+    var knowledgeTitle=h('strong',null,'在 QQ 和浏览任务中使用大肥鱼表情知识库')
+    var knowledgeSwitch=document.createElement('input'); knowledgeSwitch.type='checkbox'; knowledgeSwitch.checked=knowledge.enabled===true; knowledgeSwitch.disabled=knowledge.available!==true
+    knowledgeSwitch.setAttribute('aria-label','启用大肥鱼表情知识库')
+    knowledgeRow.appendChild(knowledgeTitle);knowledgeRow.appendChild(knowledgeSwitch);knowledgeBox.appendChild(knowledgeRow)
+    var knowledgeStatus=h('div','dsh-bili-sub',knowledge.available ? ((knowledge.enabled?'● 已开启':'○ 已关闭')+' · '+(knowledge.count == null ? '数量未知' : knowledge.count+' 个可用表情')) : '● 知识库暂不可用，请检查表情插件是否启用。')
+    knowledgeStatus.setAttribute('aria-live','polite');knowledgeBox.appendChild(knowledgeStatus)
+    knowledgeBox.appendChild(h('div','dsh-bili-sub','关闭后，QQ、B站和小黑盒的共用检索与发送不再使用这套表情；QQ 收藏表情不受影响。'))
+    if(knowledge.lastChecked){var last=new Date(knowledge.lastChecked);if(!isNaN(last.getTime()))knowledgeBox.appendChild(h('div','dsh-bili-sub','上次检查更新：'+last.toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false})))}
+    knowledgeSwitch.addEventListener('change',function(){
+      var requested=knowledgeSwitch.checked;knowledgeSwitch.disabled=true;knowledgeStatus.textContent='正在保存…'
+      postJson(api,{action:'knowledge-enabled',enabled:requested}).then(function(r){
+        if(!r||!r.ok){knowledgeSwitch.checked=!requested;knowledgeStatus.textContent=(r&&r.error)||'保存失败';knowledgeSwitch.disabled=false;return}
+        knowledgeStatus.textContent=requested?'● 已开启':'○ 已关闭';knowledgeSwitch.disabled=false
+      }).catch(function(){knowledgeSwitch.checked=!requested;knowledgeSwitch.disabled=false;knowledgeStatus.textContent='保存失败，请重试。'})
+    })
+    var updateKnowledge=h('button','dsh-fb-btn','检查并更新知识库');updateKnowledge.type='button';updateKnowledge.disabled=knowledge.available!==true
+    updateKnowledge.addEventListener('click',function(){
+      updateKnowledge.disabled=true;knowledgeStatus.textContent='正在检查并更新知识库，请稍候…'
+      postJson(api,{action:'knowledge-update'}).then(function(r){
+        updateKnowledge.disabled=false
+        knowledgeStatus.textContent=r&&r.ok?'知识库已检查并更新，当前 '+r.knowledge.count+' 个可用表情。':((r&&r.error)||'更新失败，请重试。')
+      }).catch(function(){updateKnowledge.disabled=false;knowledgeStatus.textContent='更新失败，请重试。'})
+    });knowledgeBox.appendChild(updateKnowledge)
+    knowledgeBox.appendChild(h('div','dsh-bili-sub','更新表情描述和目录，图片仍按需下载。'))
+    nodes.push(section('大肥鱼表情知识库',[knowledgeBox]))
 
     // ── 上传 ──
     // 不走 window.prompt：Electron 里它不可靠；这里用隐藏 file input + 常驻备注框。

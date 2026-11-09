@@ -45,19 +45,21 @@ function readActivity(file, limit) {
     const len = fs.readSync(fd, data, 0, data.length, start);
     const lines = data.subarray(0, len).toString('utf8').split('\n'); if (start > 0) lines.shift();
     const validActions = new Set(['搜索视频', '查看 UP 主投稿', '读取视频字幕', '获取首页推荐', '读取评论', '点赞', '核实点赞', '评论', '回复', '私信']);
-    const validStates = new Set(['开始', '完成', '失败', '无字幕跳过', '不确定']);
+    const validStates = new Set(['开始', '完成', '失败', '无字幕', '无字幕跳过', '不确定']);
     const entries = [];
     const operations = new Map();
     for (const line of lines) {
       let row; try { row = JSON.parse(line); } catch { continue; }
       if (!row || !validActions.has(row.action) || !validStates.has(row.state) || typeof row.time !== 'string' || !Number.isFinite(Date.parse(row.time))) continue;
       const item = { time: row.time, action: row.action, state: row.state };
+      if (typeof row.reason === 'string') item.reason = row.reason.slice(0, 300);
       if (typeof row.bvid === 'string' && /^BV[0-9A-Za-z]{10}$/.test(row.bvid)) item.bvid = row.bvid;
       // Comments and reply targets are written only by the eventual authenticated
       // action adapter, and deliberately shown to the account owner.
       if (['评论', '回复'].includes(row.action)) {
         if (typeof row.content === 'string') item.content = row.content.slice(0, 1000);
         if (typeof row.replyTo === 'string') item.replyTo = row.replyTo.slice(0, 100);
+        if (typeof row.stickerId === 'string' && row.stickerId.startsWith('nekowhale:')) item.stickerId = row.stickerId.slice(0, 240);
         if (Array.isArray(row.mentionUids)) item.mentionUids = row.mentionUids.filter(x => typeof x === 'string' && /^[1-9]\d{0,15}$/.test(x)).slice(0, 3);
       }
       if (row.action === '私信') {

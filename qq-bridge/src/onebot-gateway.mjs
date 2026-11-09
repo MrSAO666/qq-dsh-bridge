@@ -8,6 +8,23 @@ const NAME=/^[A-Za-z_.][A-Za-z0-9_.]{0,79}$/;
 const SECRET=/(cookie|token|credential|password|passwd|secret|skey|csrf|ticket|qrcode|qr_code|auth|session|login_key)/i;
 const FILE_KEY=/(^|_)(file|path|url|image|video|audio|directory|folder)(_|$)/i;
 const isObject=x=>x!==null && typeof x==='object' && !Array.isArray(x);
+// Descriptions supplement gaps in the live upstream catalog; an upstream
+// description always wins so syncs can pick up changes in later versions.
+const SUMMARY_FALLBACK=Object.freeze({
+  can_send_image:'查询当前账号是否支持发送图片',
+  can_send_record:'查询当前账号是否支持发送语音',
+  cancel_group_album_media_like:'取消对指定群相册媒体的点赞',
+  do_group_album_comment:'评论指定群相册媒体',
+  get_group_album_list:'获取群相册列表',
+  get_group_album_media_list:'获取指定群相册的媒体列表',
+  get_login_info:'获取当前登录账号的 QQ 号和昵称',
+  get_qun_album_list:'获取群相册列表（支持翻页参数）',
+  get_status:'获取 OneBot 连接和运行状态',
+  get_version_info:'获取 OneBot 实现和协议版本信息',
+  set_group_album_media_like:'给指定群相册媒体点赞',
+  upload_image_to_qun_album:'上传图片到指定群相册（网关当前不支持通用文件参数）',
+});
+const UNSUPPORTED=new Set(['create_collection','set_group_anonymous','set_group_anonymous_ban','set_restart']);
 
 export function createOnebotGateway({directory,catalogFile,request,now=Date.now}) {
   if(!path.isAbsolute(directory)||!path.isAbsolute(catalogFile)||typeof request!=='function')throw Error('网关配置无效');
@@ -19,7 +36,13 @@ export function createOnebotGateway({directory,catalogFile,request,now=Date.now}
   }
   function catalog(){
     return rawCatalog().filter(x=>isObject(x)&&typeof x.name==='string'&&NAME.test(x.name)&&!SECRET.test(x.name))
-      .slice(0,500).map(x=>({name:x.name,readOnly:x.readOnly===true,summary:String(x.summary||'').slice(0,250),params:Array.isArray(x.params)?x.params.map(p=>typeof p==='string'?p:p?.name).filter(p=>typeof p==='string'&&NAME.test(p)).slice(0,40):[],paramDetails:Array.isArray(x.params)?x.params.filter(isObject).slice(0,40).map(p=>({name:p.name,type:typeof p.type==='string'?p.type.slice(0,50):'',required:p.required===true,desc:typeof p.desc==='string'?p.desc.slice(0,300):'',schema:isObject(p.schema)?p.schema:null})):[]}));
+      .slice(0,500).map(x=>{
+        const localSegments=x.name==='.get_word_slices' && /未实现|不支持/.test(String(x.summary||''));
+        return {name:x.name,readOnly:localSegments||x.readOnly===true,summary:localSegments?'本地中文分词（Intl.Segmenter，结果与 QQ 原生分词可能不同）':String(x.summary||SUMMARY_FALLBACK[x.name]||'').slice(0,250),
+          params:localSegments?['content']:Array.isArray(x.params)?x.params.map(p=>typeof p==='string'?p:p?.name).filter(p=>typeof p==='string'&&NAME.test(p)).slice(0,40):[],
+          paramDetails:localSegments?[{name:'content',type:'string',required:true,desc:'要分词的文本',schema:{type:'string'}}]:Array.isArray(x.params)?x.params.filter(isObject).slice(0,40).map(p=>({name:p.name,type:typeof p.type==='string'?p.type.slice(0,50):'',required:p.required===true,desc:typeof p.desc==='string'?p.desc.slice(0,300):'',schema:isObject(p.schema)?p.schema:null})):[],localSegments,
+          unsupported:UNSUPPORTED.has(x.name)&&/未实现|不支持/.test(String(x.summary||''))};
+      });
   }
   async function syncCatalog({url,password,totp},fetchImpl=globalThis.fetch){
     let target;try{target=new URL(url)}catch{throw Error('WebUI 地址无效')}
@@ -128,7 +151,15 @@ export function createOnebotGateway({directory,catalogFile,request,now=Date.now}
       if(typeof action!=='string'||!NAME.test(action)||SECRET.test(action))throw Error('接口名称无效或受限');
       const meta=catalog().find(x=>x.name===action);if(!meta)throw Error('目录中没有此接口');
       if(!c.allowed.includes(action))throw Error('此接口尚未在网关设置中允许');
+      if(meta.unsupported)throw Error('当前 SnowLuma 版本未实现此接口，无法执行');
       validateArgs(action,args,meta);
+      if(meta.localSegments){
+        if(typeof args.content!=='string'||!args.content.trim())throw Error('分词内容不能为空');
+        if(typeof Intl.Segmenter!=='function')throw Error('当前 Node.js 不支持本地分词');
+        const words=Array.from(new Intl.Segmenter('zh',{granularity:'word'}).segment(args.content)).filter(x=>x.isWordLike).map(x=>x.segment);
+        outcome='accepted';
+        return {status:'accepted',data:{slices:words.slice(0,200),truncated:words.length>200},message:'由桥接在本地分词，结果可能与 QQ 原生分词不同。'};
+      }
       let result;
       try{result=await request(action,args)}catch{outcome='unknown';throw Error('请求结果未知，请先核实，不要自动重试')}
       if(!result||result.status!=='ok'||result.retcode!==0){

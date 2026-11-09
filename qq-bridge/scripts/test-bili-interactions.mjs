@@ -18,6 +18,8 @@ try {
   config.interactions.commentDailyLimit=5;config.interactions.mentionEnabled=true;config.interactions.mentionUids=['123'];
   config.interactions.dmEnabled=true;config.interactions.dmDailyLimit=1;config.interactions.dmUids=['123'];
   fs.writeFileSync(path.join(dir,'config.json'),JSON.stringify(config));
+  const failed=createBiliInteractions({dataDir:dir,watched,call:async()=>({success:false,error:'目标评论已不存在（可能已被删除），未发送'})});
+  assert.equal((await failed.perform({kind:'comment',bvid,text:'看看',rpid:1,replyTo:'用户'})).status,'not_sent');
   await assert.rejects(service.perform({kind:'comment',bvid,text:'不错',mentionUids:['124']}),/不在名单/);
   assert.equal((await service.perform({kind:'comment',bvid,text:'值得看看',mentionUids:['123']})).ok,true);
   assert.deepEqual(calls.at(-1).args.mention_uids,[123]);

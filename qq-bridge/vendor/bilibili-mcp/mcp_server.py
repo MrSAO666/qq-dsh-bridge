@@ -979,7 +979,7 @@ def _guard_log(entry: dict) -> None:
 
 
 @tool()
-async def bili_reply(bvid: str, text: str, rpid: int = 0, root: int = 0, mention_uids: list[int] = None) -> str:
+async def bili_reply(bvid: str, text: str, rpid: int = 0, root: int = 0, mention_uids: list[int] = None, sticker_gif: str = "") -> str:
     """
     在B站视频下发表评论或回复某条评论
 
@@ -1006,6 +1006,14 @@ async def bili_reply(bvid: str, text: str, rpid: int = 0, root: int = 0, mention
             return json.dumps({"success": False, "error": "目标评论已不存在（可能已被删除），未发送"}, ensure_ascii=False)
 
     try:
+        pic = None
+        if sticker_gif:
+            if len(sticker_gif) > 2796204:
+                raise ValueError('表情图片超过大小上限')
+            image_data = base64.b64decode(sticker_gif, validate=True)
+            if len(image_data) > 2 * 1024 * 1024 or not image_data.startswith((b'GIF87a', b'GIF89a')):
+                raise ValueError('表情图片格式无效')
+            pic = Picture.from_content(image_data, 'gif')
         if mention_uids:
             if len(mention_uids) > 3 or len(set(mention_uids)) != len(mention_uids):
                 raise ValueError('无效的 @ 名单')
@@ -1024,6 +1032,9 @@ async def bili_reply(bvid: str, text: str, rpid: int = 0, root: int = 0, mention
             data = {'oid': aid, 'type': comment.CommentResourceType.VIDEO.value,
                     'message': message, 'plat': 1, 'statistics': {'appId': 100, 'platform': 5},
                     'gaia_source': 'main_web', 'at_name_to_mid': json.dumps(names, ensure_ascii=False)}
+            if pic:
+                uploaded = await comment.upload_image(image=pic, credential=cred)
+                data['pictures'] = json.dumps([{'img_src': uploaded['image_url'], 'img_width': uploaded['image_width'], 'img_height': uploaded['image_height'], 'img_size': uploaded['img_size']}])
             if rpid:
                 data['root'] = root if root else rpid
                 data['parent'] = rpid
@@ -1035,6 +1046,7 @@ async def bili_reply(bvid: str, text: str, rpid: int = 0, root: int = 0, mention
                 oid=aid,
                 type_=comment.CommentResourceType.VIDEO,
                 credential=cred,
+                pic=pic,
             )
         else:
             # 回复评论
@@ -1048,6 +1060,7 @@ async def bili_reply(bvid: str, text: str, rpid: int = 0, root: int = 0, mention
                 root=actual_root,
                 parent=rpid,
                 credential=cred,
+                pic=pic,
             )
 
         # ⭐ 把回执里的 rpid 带回去：判重表要靠它记「我们发过哪条」，宿主的评论复核

@@ -183,6 +183,48 @@ const REQUEST_TIMEOUT_MS = 20000;
 const ATTEMPT_TIMEOUT_MS = 8000;
 const MAX_ADDRESS_ATTEMPTS = 4;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const RAW_GITHUB_HOSTS = new Set(['raw.githubusercontent.com', 'raw.github.com']);
+
+/**
+ * 把 GitHub Raw 文件地址转换成 GitHub Contents API 地址。
+ *
+ * 某些网络出口会对 raw.githubusercontent.com 的 TLS SNI 直接重置，但 api.github.com
+ * 与 git 协议仍然可用。API 的 raw 媒体类型可以直接返回文件原文，是官方替代路径。
+ * 分支名本身含斜杠时无法只凭 Raw URL 无歧义拆分，这里按单段分支名处理。
+ */
+function rawGithubApiUrl(raw) {
+  let source;
+  try {
+    source = new URL(String(raw ?? '').trim());
+  } catch {
+    return null;
+  }
+  if (!RAW_GITHUB_HOSTS.has(source.hostname.toLowerCase())) return null;
+  const decode = (part) => {
+    try {
+      return decodeURIComponent(part);
+    } catch {
+      return part;
+    }
+  };
+  const parts = source.pathname.split('/').filter(Boolean).map(decode);
+  if (parts.length < 4) return null;
+  const [owner, repo] = parts;
+  let index = 2;
+  let ref;
+  if (parts[index] === 'refs' && (parts[index + 1] === 'heads' || parts[index + 1] === 'tags')) {
+    ref = parts[index + 2];
+    index += 3;
+  } else {
+    ref = parts[index];
+    index += 1;
+  }
+  const fileParts = parts.slice(index);
+  if (!owner || !repo || !ref || !fileParts.length) return null;
+  if ([owner, repo, ref, ...fileParts].some((part) => part === '.' || part === '..')) return null;
+  const encodedPath = fileParts.map((part) => encodeURIComponent(part)).join('/');
+  return `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`;
+}
 
 function validateLimit(value, name) {
   if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} 必须为正整数`);
@@ -193,7 +235,7 @@ function validateLimit(value, name) {
  * 返回 `{ok:true,result}` 或 `{ok:false,error,retryable}`；retryable 只标记网络层失败
  * （连接失败/超时/正文中断），大小与图片签名等策略性拒绝不重试。
  */
-function attemptOnce(url, address, limit, binary, budgetMs) {
+function attemptOnce(url, address, limit, binary, budgetMs, accept) {
   return new Promise((resolve) => {
     let settled = false;
     let req;
@@ -223,7 +265,7 @@ function attemptOnce(url, address, limit, binary, budgetMs) {
         headers: {
           host: url.host,
           'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36',
-          accept: binary ? 'image/*,*/*;q=0.8' : 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          accept: accept || (binary ? 'image/*,*/*;q=0.8' : 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
           'accept-language': 'zh-CN,zh;q=0.9',
         },
         servername: url.protocol === 'https:' && !net.isIP(hostname) ? hostname : undefined,
@@ -298,13 +340,15 @@ function attemptOnce(url, address, limit, binary, budgetMs) {
  * 单地址时沿用原来的「整个 20 秒总预算」，多地址时才启用单次尝试预算与失败切换：
  * 这样「只有一个地址、对方慢慢滴流」仍然会等满总时限（由总 deadline 兜底），
  * 而「第一个地址是坏的 IPv6」不会再白等 20 秒。
- * 所有地址都失败时抛最后一个错误（保留原始错误文案，便于日志排查）。
+ * 所有地址都失败时聚合错误，保留每个 IPv4/IPv6 地址的原始错误，避免只看到
+ * 「最后尝试的 IPv6」而误判故障原因。
  */
-async function requestOnce(url, addresses, limit, binary = false) {
+async function requestOnce(url, addresses, limit, binary = false, accept = null) {
   const list = (Array.isArray(addresses) ? addresses : [addresses]).filter(Boolean);
   if (!list.length) throw new Error(`没有可用地址：${url.hostname}`);
   const deadline = Date.now() + REQUEST_TIMEOUT_MS;
   let lastError = null;
+  const failures = [];
   const attempts = Math.min(list.length, MAX_ADDRESS_ATTEMPTS);
   for (let i = 0; i < attempts; i += 1) {
     const remaining = deadline - Date.now();
@@ -312,9 +356,10 @@ async function requestOnce(url, addresses, limit, binary = false) {
     const budget = list.length === 1
       ? REQUEST_TIMEOUT_MS
       : Math.min(ATTEMPT_TIMEOUT_MS, remaining);
-    const outcome = await attemptOnce(url, list[i], limit, binary, budget);
+    const outcome = await attemptOnce(url, list[i], limit, binary, budget, accept);
     if (outcome.ok) return outcome.result;
     lastError = outcome.error;
+    failures.push({ address: list[i], error: outcome.error });
     if (!outcome.retryable) throw outcome.error;
     if (i < attempts - 1) {
       // 换地址重试：只换连接目标，Host/SNI/路径全部不变（同一个站点）。
@@ -322,17 +367,21 @@ async function requestOnce(url, addresses, limit, binary = false) {
     }
   }
   if (lastError && attempts > 1) {
-    lastError.message = `${lastError.message}（已尝试 ${attempts} 个地址）`;
+    const details = failures.map(({ address, error }) => {
+      const family = net.isIP(address) === 6 ? 'IPv6' : 'IPv4';
+      return `${family} ${address}: ${error?.message ?? error}`;
+    }).join('；');
+    lastError.message = `${attempts} 个地址均失败：${details}`;
   }
   throw lastError ?? new Error(`请求失败：${url.hostname}`);
 }
 
-export async function safeFetch(urlString, maxChars = 50000) {
+async function safeFetchDirect(urlString, maxChars = 50000, accept = null) {
   validateLimit(maxChars, 'maxChars');
   const MAX_REDIRECTS = 5;
   let { url, addresses } = await validateFetchUrl(urlString);
   for (let i = 0; i <= MAX_REDIRECTS; i++) {
-    const result = await requestOnce(url, addresses, maxChars);
+    const result = await requestOnce(url, addresses, maxChars, false, accept);
     if ([301, 302, 303, 307, 308].includes(result.statusCode)) {
       if (!result.redirect) throw new Error(`重定向缺少 Location: ${result.statusCode}`);
       const next = new URL(result.redirect, url).toString();
@@ -348,6 +397,31 @@ export async function safeFetch(urlString, maxChars = 50000) {
     };
   }
   throw new Error('重定向次数过多，已停止');
+}
+
+/**
+ * 抓取 HTTP(S) 内容。GitHub Raw 被网络出口重置时，自动改用官方 Contents API。
+ * 返回值中的 `fallback` 用于标明实际走的回退路径。
+ */
+export async function safeFetch(urlString, maxChars = 50000) {
+  try {
+    return await safeFetchDirect(urlString, maxChars);
+  } catch (rawError) {
+    const apiUrl = rawGithubApiUrl(urlString);
+    if (!apiUrl) throw rawError;
+    try {
+      const result = await safeFetchDirect(apiUrl, maxChars, 'application/vnd.github.raw+json');
+      return {
+        ...result,
+        url: String(urlString ?? '').trim(),
+        fallback: 'github-api',
+      };
+    } catch (apiError) {
+      throw new Error(
+        `Raw 抓取失败：${rawError?.message ?? rawError}；GitHub API 回退失败：${apiError?.message ?? apiError}`
+      );
+    }
+  }
 }
 
 /** 仅接受 DSH 支持的四种图片格式：PNG/JPEG/GIF/WebP。 */

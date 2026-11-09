@@ -9,13 +9,18 @@ const opts={stateFile:path.join(dir,'run.json'),now:()=>time,getConfig:()=>confi
 try {
   const auto=createBiliAutomation(opts);
   await auto.tick();
+  assert.equal(prompts.length,0,'没有 AI 决定时不应自动派发');
+  assert.equal(auto.request(),true); await auto.tick();
   let active=auto.snapshot().active;
   assert.equal(active.status,'reserved');assert.equal(active.parentSessionId,'parent');assert.match(prompts[0].text,new RegExp('bili-'+active.id));
+  assert.match(prompts[0].text,/mentionUids/);assert.match(prompts[0].text,/想让主人看的视频/);assert.doesNotMatch(prompts[0].text,/不要在评论中写 @/);
+  assert.match(prompts[0].text,/每次浏览前，先查看 B站私信/);assert.match(prompts[0].text,/不能假装已查看/);
   time+=30000;watches[0].onStart({childId:'child',startedAt:time});
   active=auto.snapshot().active;assert.equal(active.deadlineAt,time+20*60000);
   watches[0].onEnd({childId:'child',text:'摘要 BV1abcdefgh1'});
   assert.equal(auto.snapshot().active,null);assert.equal(reports.length,1);
-  await auto.tick();assert.equal(prompts.length,2,'取消最短间隔后可以安排下一次');
+  await auto.tick();assert.equal(prompts.length,1,'任务结束后不能自行再次派发');
+  assert.equal(auto.request(),true); await auto.tick();assert.equal(prompts.length,2,'AI 决定后不受固定最短间隔约束');
   auto.dispose();
   const restored=createBiliAutomation(opts);await restored.tick();assert.equal(watches.length,3,'重启后恢复监听保留中的任务');
   const reserved=restored.snapshot().active;
